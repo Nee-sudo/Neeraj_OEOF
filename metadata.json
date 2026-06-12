@@ -1,0 +1,6 @@
+{
+  "name": "One Earth",
+  "description": "A digital civilization built on unified global community, meritocratic ranks, and real-world contributions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
