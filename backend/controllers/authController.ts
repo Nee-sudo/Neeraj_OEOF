@@ -25,6 +25,13 @@ export const registerUser = async (req: Request, res: Response) => {
        return;
     }
 
+    // Also check if any document exists in the collection with this email
+    const emailQuery = await db.collection('users').where('email', '==', email).get();
+    if (!emailQuery.empty) {
+       res.status(200).json(emailQuery.docs[0].data());
+       return;
+    }
+
     // Check username existence
     const usernameQuery = await db.collection('users').where('username', '==', `@${username}`).get();
     if (!usernameQuery.empty) {
