@@ -2571,7 +2571,12 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                 }
 
                 val posts by viewModel.rankedPosts.collectAsState()
-                val userPosts = posts.filter { it.authorName == user.name || it.authorId == user.id || (user.id == "me" && it.authorId == "me") }
+                val userPosts = posts.filter { 
+                    it.authorName == user.name || 
+                    it.authorId == user.id || 
+                    (user.id == "me" && (it.authorId == "me" || it.authorId.equals(user.email, ignoreCase = true))) || 
+                    (user.email.isNotBlank() && it.authorId.equals(user.email, ignoreCase = true)) 
+                }
 
                 Divider(color = MutedSlate.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 12.dp))
                 Text(
@@ -2747,6 +2752,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
 @Composable
 fun PublicSquareTab(viewModel: AppViewModel) {
     val posts by viewModel.rankedPosts.collectAsState()
+    val currentUser by viewModel.currentUserFlow.collectAsState()
     var postContent by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Inquiry") }
     var showComposerDialog by remember { mutableStateOf(false) }
@@ -2881,7 +2887,7 @@ fun PublicSquareTab(viewModel: AppViewModel) {
                                     emoji = "🧠",
                                     tooltipText = "Wise",
                                     count = post.knowledgeValue,
-                                    active = post.reactedWiseUsers.split(",").contains("me"),
+                                    active = post.reactedWiseUsers.split(",").any { it == "me" || (currentUser != null && it.equals(currentUser?.email, ignoreCase = true)) },
                                     color = RegalGold,
                                     onClick = { viewModel.reactToPost(post.id, "Wise") }
                                 )
@@ -2891,7 +2897,7 @@ fun PublicSquareTab(viewModel: AppViewModel) {
                                     emoji = "🤝",
                                     tooltipText = "Helpful",
                                     count = post.contributionProof,
-                                    active = post.reactedHelpfulUsers.split(",").contains("me"),
+                                    active = post.reactedHelpfulUsers.split(",").any { it == "me" || (currentUser != null && it.equals(currentUser?.email, ignoreCase = true)) },
                                     color = LustrousAmber,
                                     onClick = { viewModel.reactToPost(post.id, "Helpful") }
                                 )
@@ -2901,7 +2907,7 @@ fun PublicSquareTab(viewModel: AppViewModel) {
                                     emoji = "✨",
                                     tooltipText = "Inspiring",
                                     count = (post.reputationImpact - 90).coerceAtLeast(0),
-                                    active = post.reactedInspiringUsers.split(",").contains("me"),
+                                    active = post.reactedInspiringUsers.split(",").any { it == "me" || (currentUser != null && it.equals(currentUser?.email, ignoreCase = true)) },
                                     color = ElectricBlue,
                                     onClick = { viewModel.reactToPost(post.id, "Inspiring") }
                                 )
@@ -4971,7 +4977,14 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
                     Spacer(modifier = Modifier.height(10.dp))
 
                     val allPosts by viewModel.rankedPosts.collectAsState()
-                    val myPosts = remember(allPosts) { allPosts.filter { it.authorId == "me" } }
+                    val meUser by viewModel.currentUserFlow.collectAsState()
+                    val myPosts = remember(allPosts, meUser) { 
+                        allPosts.filter { 
+                            it.authorId == "me" || 
+                            (meUser != null && it.authorId.equals(meUser?.email, ignoreCase = true)) ||
+                            (meUser != null && it.authorName.equals(meUser?.name, ignoreCase = true)) 
+                        } 
+                    }
 
                     if (myPosts.isEmpty()) {
                         Text(

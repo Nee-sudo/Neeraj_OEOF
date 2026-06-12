@@ -265,6 +265,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         ApiClient.updateBaseUrl(cleanUrl)
         _backendBaseUrl.value = ApiClient.getBaseUrl()
+        sharedPrefs.edit().putString("backend_url", ApiClient.getBaseUrl()).apply()
         viewModelScope.launch {
             _isConnectingToBackend.value = true
             _toastMessage.emit("Connecting to Cosmos Network at: ${ApiClient.getBaseUrl()}...")
@@ -322,6 +323,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     init {
+        // Load persistent backend URL if set
+        val persistedUrl = sharedPrefs.getString("backend_url", null)
+        if (!persistedUrl.isNullOrBlank()) {
+            ApiClient.updateBaseUrl(persistedUrl)
+            _backendBaseUrl.value = ApiClient.getBaseUrl()
+        }
         // Prepopulate database with rich data for demonstration
         prepopulateDb()
         // Start backend connection monitoring
@@ -1063,20 +1070,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun reactToPost(postId: Int, type: String) {
         viewModelScope.launch {
             val post = postDao.getPostById(postId) ?: return@launch
+            val me = userDao.getUserById("me")
+            val myId = if (me != null && me.email.isNotBlank()) me.email.lowercase().trim() else "me"
             var updatedPost = post
 
             when (type) {
                 "Wise" -> {
                     val reactors = post.reactedWiseUsers.split(",").filter { it.isNotBlank() }.toMutableList()
-                    if (reactors.contains("me")) {
+                    if (reactors.contains("me") || reactors.contains(myId)) {
                         reactors.remove("me")
+                        reactors.remove(myId)
                         updatedPost = post.copy(
                             knowledgeValue = (post.knowledgeValue - 1).coerceAtLeast(0),
                             reactedWiseUsers = reactors.joinToString(",")
                         )
                         _toastMessage.emit("Retracted Wise reaction")
                     } else {
-                        reactors.add("me")
+                        reactors.add(myId)
                         updatedPost = post.copy(
                             knowledgeValue = post.knowledgeValue + 1,
                             reactedWiseUsers = reactors.joinToString(",")
@@ -1087,15 +1097,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 "Helpful" -> {
                     val reactors = post.reactedHelpfulUsers.split(",").filter { it.isNotBlank() }.toMutableList()
-                    if (reactors.contains("me")) {
+                    if (reactors.contains("me") || reactors.contains(myId)) {
                         reactors.remove("me")
+                        reactors.remove(myId)
                         updatedPost = post.copy(
                             contributionProof = (post.contributionProof - 1).coerceAtLeast(0),
                             reactedHelpfulUsers = reactors.joinToString(",")
                         )
                         _toastMessage.emit("Retracted Helpful reaction")
                     } else {
-                        reactors.add("me")
+                        reactors.add(myId)
                         updatedPost = post.copy(
                             contributionProof = post.contributionProof + 1,
                             reactedHelpfulUsers = reactors.joinToString(",")
@@ -1106,15 +1117,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 "Inspiring" -> {
                     val reactors = post.reactedInspiringUsers.split(",").filter { it.isNotBlank() }.toMutableList()
-                    if (reactors.contains("me")) {
+                    if (reactors.contains("me") || reactors.contains(myId)) {
                         reactors.remove("me")
+                        reactors.remove(myId)
                         updatedPost = post.copy(
                             reputationImpact = (post.reputationImpact - 1).coerceAtLeast(90),
                             reactedInspiringUsers = reactors.joinToString(",")
                         )
                         _toastMessage.emit("Retracted Inspiring reaction")
                     } else {
-                        reactors.add("me")
+                        reactors.add(myId)
                         updatedPost = post.copy(
                             reputationImpact = (post.reputationImpact + 1).coerceAtMost(100),
                             reactedInspiringUsers = reactors.joinToString(",")
@@ -1129,8 +1141,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // Submit reaction to server
             if (_isBackendConnected.value) {
                 try {
-                    val me = userDao.getUserById("me")
-                    val remoteUpdated = ApiClient.getService().reactToPost(postId, ReactionRequest(me?.id ?: "me", type))
+                    val remoteUpdated = ApiClient.getService().reactToPost(postId, ReactionRequest(myId, type))
                     postDao.updatePost(remoteUpdated)
                 } catch (e: Exception) {
                     // Fail-safe
@@ -1140,8 +1151,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun awardAuthorPoints(authorId: String, kDelta: Int, cDelta: Int) {
-        if (authorId == "me") {
-            val me = userDao.getUserById("me") ?: return
+        val me = userDao.getUserById("me")
+        if (authorId == "me" || (me != null && authorId.lowercase().trim() == me.email.lowercase().trim())) {
+            if (me == null) return
             saveUserAndRecalculateRank(me.copy(
                 knowledgeCredits = me.knowledgeCredits + kDelta,
                 contributionCredits = me.contributionCredits + cDelta
@@ -1156,10 +1168,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun incrementReputation(authorId: String, delta: Int) {
-        val user = userDao.getUserById(authorId) ?: return
-        saveUserAndRecalculateRank(user.copy(
-            reputationScore = (user.reputationScore + delta).coerceAtMost(100)
-        ))
+        val me = userDao.getUserById("me")
+        if (authorId == "me" || (me != null && authorId.lowercase().trim() == me.email.lowercase().trim())) {
+            if (me == null) return
+            saveUserAndRecalculateRank(me.copy(
+                reputationScore = (me.reputationScore + delta).coerceAtMost(100)
+            ))
+        } else {
+            val user = userDao.getUserById(authorId) ?: return
+            saveUserAndRecalculateRank(user.copy(
+                reputationScore = (user.reputationScore + delta).coerceAtMost(100)
+            ))
+        }
     }
 
     // Comment Flow
@@ -1202,8 +1222,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (content.isBlank()) return
         viewModelScope.launch {
             val me = userDao.getUserById("me") ?: return@launch
+            val authorIdToUse = if (me.email.isNotBlank()) me.email.lowercase().trim() else "me"
             val post = PostEntity(
-                authorId = "me",
+                authorId = authorIdToUse,
                 authorName = me.name,
                 authorUsername = me.username,
                 authorRank = me.currentRank,
