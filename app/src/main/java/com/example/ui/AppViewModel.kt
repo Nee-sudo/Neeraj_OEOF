@@ -325,8 +325,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Load persistent backend URL if set
         val persistedUrl = sharedPrefs.getString("backend_url", null)
-        if (!persistedUrl.isNullOrBlank()) {
+        if (!persistedUrl.isNullOrBlank() && !persistedUrl.contains("ais-pre-") && !persistedUrl.contains("ais-dev-")) {
             ApiClient.updateBaseUrl(persistedUrl)
+            _backendBaseUrl.value = ApiClient.getBaseUrl()
+        } else {
+            sharedPrefs.edit().remove("backend_url").apply()
+            ApiClient.updateBaseUrl("https://one-earth-dadyagc7bcc9hpcb.eastasia-01.azurewebsites.net/")
             _backendBaseUrl.value = ApiClient.getBaseUrl()
         }
         // Prepopulate database with rich data for demonstration
