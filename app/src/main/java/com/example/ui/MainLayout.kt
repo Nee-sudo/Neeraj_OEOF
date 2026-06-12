@@ -2764,6 +2764,44 @@ fun PublicSquareTab(viewModel: AppViewModel) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().imePadding()) {
+            // Screen Title + Manual Refresh Action Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Global Public Square",
+                        color = GhostWhite,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Citizen dialogues on merit, knowledge, & contribution",
+                        color = MutedSlate,
+                        fontSize = 11.sp
+                    )
+                }
+                IconButton(
+                    onClick = { viewModel.syncAllWithBackend() },
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(RegalGold.copy(alpha = 0.15f))
+                        .size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.Refresh,
+                        contentDescription = "Sync Feed",
+                        tint = RegalGold,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
             // Merit ranked Scroll feed
             LazyColumn(
                 modifier = Modifier.weight(1f),

@@ -149,6 +149,9 @@ interface UserDao {
     @Query("DELETE FROM users")
     suspend fun deleteAllUsers()
 
+    @Query("DELETE FROM users WHERE id != 'me'")
+    suspend fun deleteAllNonMeUsers()
+
     @Query("SELECT * FROM users WHERE isCandidate = 1 AND id != 'me' AND id NOT LIKE 'user_%' ORDER BY votesCount DESC, knowledgeCredits DESC")
     fun getCandidatesFlow(): Flow<List<UserEntity>>
 

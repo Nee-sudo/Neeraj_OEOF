@@ -5,6 +5,105 @@ import { IComment } from '../models/Comment';
 import { getNextSequenceValue } from '../models/Counter';
 import { IUser, calculateUserRank } from '../models/User';
 
+export function normalizeBackendPost(raw: any): IPost {
+  if (!raw) {
+    return {
+      id: 0,
+      authorId: "anonymous",
+      authorName: "Anonymous Citizen",
+      authorUsername: "@anonymous",
+      authorRank: "Citizen",
+      authorTerritory: "Global",
+      authorFlag: "🌍",
+      content: "",
+      category: "General",
+      timestamp: Date.now(),
+      knowledgeValue: 0,
+      contributionProof: 0,
+      reputationImpact: 100,
+      reactedWiseUsers: "",
+      reactedHelpfulUsers: "",
+      reactedInspiringUsers: ""
+    };
+  }
+
+  // 1. Coerce ID to valid number
+  let cleanId = 0;
+  if (raw.id !== undefined && raw.id !== null) {
+    if (typeof raw.id === 'number') {
+      cleanId = raw.id;
+    } else {
+      const parsedStr = String(raw.id).replace(/\D/g, '');
+      const parsed = parseInt(parsedStr, 10);
+      cleanId = isNaN(parsed) ? 999 + Math.floor(Math.random() * 1000) : parsed;
+    }
+  } else if (raw._id !== undefined && raw._id !== null) {
+    if (typeof raw._id === 'number') {
+      cleanId = raw._id;
+    } else {
+      const parsedStr = String(raw._id).replace(/\D/g, '');
+      const parsed = parseInt(parsedStr, 10);
+      cleanId = isNaN(parsed) ? 999 + Math.floor(Math.random() * 1000) : parsed;
+    }
+  }
+
+  // 2. Map snake_case to camelCase
+  const authorId = raw.authorId || raw.author_id || "anonymous";
+  const authorName = raw.authorName || raw.author_name || "Anonymous Citizen";
+  const authorUsername = raw.authorUsername || raw.author_username || "@anonymous";
+  const authorRank = raw.authorRank || raw.author_rank || "Citizen";
+  const authorTerritory = raw.authorTerritory || raw.author_territory || "Global";
+  const authorFlag = raw.authorFlag || raw.author_flag || "🌍";
+
+  const content = raw.content || raw.title || "";
+  const category = raw.category || raw.type || "Inquiry";
+
+  // Handle timestamp
+  let timestamp = Date.now();
+  if (raw.timestamp !== undefined && raw.timestamp !== null) {
+    timestamp = Number(raw.timestamp);
+  } else if (raw.created_at !== undefined && raw.created_at !== null) {
+    const val = Number(raw.created_at);
+    if (val < 100000000) {
+      timestamp = Date.now() - (100000000 - val) * 1000;
+    } else {
+      timestamp = val;
+    }
+  }
+
+  // Metrics
+  const knowledgeValue = Number(raw.knowledgeValue !== undefined ? raw.knowledgeValue : (raw.wise_count || 0));
+  const contributionProof = Number(raw.contributionProof !== undefined ? raw.contributionProof : (raw.helpful_count || 0));
+  
+  let reputationImpact = Number(raw.reputationImpact !== undefined ? raw.reputationImpact : 100);
+  if (raw.reputationImpact === undefined && raw.inspiring_count !== undefined) {
+    reputationImpact = 100 + Number(raw.inspiring_count);
+  }
+
+  const reactedWiseUsers = raw.reactedWiseUsers || raw.reacted_wise_users || "";
+  const reactedHelpfulUsers = raw.reactedHelpfulUsers || raw.reacted_helpful_users || "";
+  const reactedInspiringUsers = raw.reactedInspiringUsers || raw.reacted_inspiring_users || "";
+
+  return {
+    id: cleanId,
+    authorId,
+    authorName,
+    authorUsername,
+    authorRank,
+    authorTerritory,
+    authorFlag,
+    content,
+    category,
+    timestamp,
+    knowledgeValue,
+    contributionProof,
+    reputationImpact,
+    reactedWiseUsers,
+    reactedHelpfulUsers,
+    reactedInspiringUsers
+  };
+}
+
 export const getPosts = async (req: Request, res: Response) => {
   try {
     const { category } = req.query;
@@ -12,7 +111,7 @@ export const getPosts = async (req: Request, res: Response) => {
     
     // Fetch all posts and sort in memory to avoid requiring manual Firestore composite indexes
     const snapshot = await db.collection('posts').get();
-    let posts = snapshot.docs.map(doc => doc.data() as IPost);
+    let posts = snapshot.docs.map(doc => normalizeBackendPost(doc.data()));
     
     if (category) {
       posts = posts.filter(p => p.category === String(category));
@@ -53,7 +152,7 @@ export const createPost = async (req: Request, res: Response) => {
 
     // Store in collection using string of sequential ID as doc key
     await db.collection('posts').doc(String(nextId)).set(newPost);
-    res.status(201).json(newPost);
+    res.status(201).json(normalizeBackendPost(newPost));
   } catch (error: any) {
     console.error("Firestore createPost Error:", error);
     res.status(500).json({ error: error.message });
@@ -163,7 +262,7 @@ export const reactToPost = async (req: Request, res: Response) => {
       }
     }
 
-    res.status(200).json(post);
+    res.status(200).json(normalizeBackendPost(post));
   } catch (error: any) {
     console.error("Firestore reacToPost Error:", error);
     res.status(500).json({ error: error.message });

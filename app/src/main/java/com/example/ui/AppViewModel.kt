@@ -541,50 +541,57 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // 1. Sync Posts from Backend
-                val remotePosts = ApiClient.getService().getPosts()
-                if (remotePosts.isNotEmpty()) {
-                    remotePosts.forEach { post ->
-                        val localMatch = postDao.getPostByAuthorAndContent(post.authorId, post.content)
-                        if (localMatch != null && localMatch.id != post.id) {
-                            postDao.deletePost(localMatch)
+                try {
+                    val remotePosts = ApiClient.getService().getPosts()
+                    postDao.deleteAllPosts()
+                    if (remotePosts.isNotEmpty()) {
+                        remotePosts.forEach { post ->
+                            postDao.insertPost(post)
                         }
-                        postDao.insertPost(post)
                     }
+                } catch (postEx: Exception) {
+                    android.util.Log.e("AppViewModel", "Sync Posts Error: ${postEx.message}", postEx)
                 }
 
                 // 2. Sync Chat Rooms from Backend
-                val remoteRooms = ApiClient.getService().getChatRooms(me?.name)
-                if (remoteRooms.isNotEmpty()) {
-                    remoteRooms.forEach { room ->
-                        val local = chatDao.getRoomById(room.id)
-                        if (local == null) {
-                            chatDao.insertRoom(room)
-                        } else if (!local.isDeleted) {
+                try {
+                    val remoteRooms = ApiClient.getService().getChatRooms(me?.name)
+                    chatDao.deleteAllRooms()
+                    if (remoteRooms.isNotEmpty()) {
+                        remoteRooms.forEach { room ->
                             chatDao.insertRoom(room)
                         }
                     }
+                } catch (roomEx: Exception) {
+                    android.util.Log.e("AppViewModel", "Sync Chat Rooms Error: ${roomEx.message}", roomEx)
                 }
 
                 // 3. Sync All Users from Cloud to Local Friends List
-                val remoteUsers = ApiClient.getService().getAllUsers()
-                if (remoteUsers.isNotEmpty()) {
-                    remoteUsers.forEach { user ->
-                        // Skip local logged-in user profile to prevent self duplicates
-                        val matchesMe = me != null && (
-                            user.email.lowercase().trim() == me.email.lowercase().trim() ||
-                            user.username.lowercase().trim() == me.username.lowercase().trim()
-                        )
-                        if (!matchesMe && user.email.isNotBlank()) {
-                            // Map the received user entity into sqlite with their email as secondary key ID
-                            val friendEntity = user.copy(
-                                id = user.email.lowercase().trim()
+                try {
+                    val remoteUsers = ApiClient.getService().getAllUsers()
+                    userDao.deleteAllNonMeUsers()
+                    if (remoteUsers.isNotEmpty()) {
+                        remoteUsers.forEach { user ->
+                            // Skip local logged-in user profile to prevent self duplicates
+                            val matchesMe = me != null && (
+                                user.email.lowercase().trim() == me.email.lowercase().trim() ||
+                                user.username.lowercase().trim() == me.username.lowercase().trim()
                             )
-                            userDao.insertUser(friendEntity)
+                            if (!matchesMe && user.email.isNotBlank()) {
+                                // Map the received user entity into sqlite with their email as secondary key ID
+                                val friendEntity = user.copy(
+                                    id = user.email.lowercase().trim()
+                                )
+                                userDao.insertUser(friendEntity)
+                            }
                         }
                     }
+                } catch (userEx: Exception) {
+                    android.util.Log.e("AppViewModel", "Sync Users Error: ${userEx.message}", userEx)
                 }
             } catch (e: Exception) {
                 // Fail-safe
+                android.util.Log.e("AppViewModel", "SyncAllWithBackend Error: ${e.message}", e)
             }
         }
     }
@@ -842,6 +849,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectTab(tab: DashboardTab) {
         _currentTab.value = tab
+        if (tab == DashboardTab.PublicSquare) {
+            syncAllWithBackend()
+        }
     }
 
     fun notifyProfileView(hostUser: UserEntity) {

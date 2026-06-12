@@ -217,9 +217,11 @@ export const getAllUsers = async (req: Request, res: Response) => {
     const db = getFirestoreDb();
     const snapshot = await db.collection('users').get();
     const usersList: any[] = [];
-    snapshot.forEach(doc => {
-      usersList.push(doc.data());
-    });
+    if (snapshot && snapshot.docs) {
+      snapshot.docs.forEach((doc: any) => {
+        usersList.push(doc.data());
+      });
+    }
     res.status(200).json(usersList);
   } catch (error: any) {
     console.error("Firestore List Users Error:", error);
