@@ -1,0 +1,53 @@
+# This workflow will build and deploy a Node.js / TypeScript app to an Azure Web App (App Service) when a commit is pushed to the main/master branch.
+#
+# To configure this workflow, you need to:
+# 1. Download the Publish Profile for your Azure Web App "one-earth" from the Azure Portal.
+# 2. Add the XML content of the publish profile as a Secret in your GitHub repository named:
+#    AZURE_WEBAPP_PUBLISH_PROFILE
+# 3. Securely set up environment variables in your Azure App Service "Configuration -> Application Settings":
+#    - MONGO_URI / DATABASE_URL
+#    - JWT_SECRET
+#    - JWT_REFRESH_SECRET
+#    - PORT (defaults to 8080 or port configured by Azure)
+
+name: Build and Deploy Backend to Azure App Service
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'backend/package.json'
+
+      - name: Install dependencies & compile TypeScript
+        run: |
+          cd backend
+          npm install
+          npm run build
+
+      - name: Prune devDependencies for production
+        run: |
+          cd backend
+          npm prune --production
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'one-earth'
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: './backend'

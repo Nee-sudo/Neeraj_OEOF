@@ -300,6 +300,7 @@ export const connectDatabase = async (): Promise<void> => {
                      process.env.MONGO_URL || 
                      process.env.MONGO_UR || 
                      process.env.Mongo_ur || 
+                     process.env.DATABASE_URL || 
                      'mongodb://127.0.0.1:27017/oneearth';
                      
     console.log('⚡ MongoDB: Initializing connection...');
