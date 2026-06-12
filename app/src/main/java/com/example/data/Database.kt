@@ -34,7 +34,8 @@ data class UserEntity(
     val votesCount: Int = 0,
     val hasVoted: Boolean = false,
     val profilePhoto: String = "",
-    val passphrase: String = "1234"
+    val passphrase: String = "1234",
+    val token: String? = null
 )
 
 @Entity(tableName = "posts")
@@ -312,7 +313,7 @@ interface HallOfLegendsDao {
         ImperialMissionEntity::class,
         HallOfLegendsEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

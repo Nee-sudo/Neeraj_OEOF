@@ -211,4 +211,13 @@ object TerritoryDatabase {
         TerritoryDetails("Tuvalu", "🇹🇻", "Funafuti", "Oceania", "11,000", "Displays nine stars representing the nine islands of the archipelago.", "TV"),
         TerritoryDetails("Vanuatu", "🇻🇺", "Port Vila", "Oceania", "300,000", "The wild boar tusk represents wealth, and crossed namele leaves represent peace.", "VU")
     )
+
+    fun getDetailsByName(name: String): TerritoryDetails? {
+        return list.find { it.name.equals(name, ignoreCase = true) }
+    }
+
+    fun isValidTerritory(name: String, flag: String): Boolean {
+        val details = getDetailsByName(name)
+        return details != null && details.flag == flag
+    }
 }

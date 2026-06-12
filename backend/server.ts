@@ -43,10 +43,12 @@ app.get('/api/health', (req, res) => {
 });
 
 // Configure Custom Routes
+import { verifyToken } from './controllers/authController';
+
 app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/posts', postRoutes);
-app.use('/api/chat', chatRoutes);
+app.use('/api/users', verifyToken, userRoutes);
+app.use('/api/posts', verifyToken, postRoutes);
+app.use('/api/chat', verifyToken, chatRoutes);
 
 // Socket Handler setup
 setupSocketHandler(io);

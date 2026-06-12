@@ -325,11 +325,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Load persistent backend URL if set
         val persistedUrl = sharedPrefs.getString("backend_url", null)
-        if (!persistedUrl.isNullOrBlank() && !persistedUrl.contains("ais-pre-") && !persistedUrl.contains("ais-dev-")) {
+        if (!persistedUrl.isNullOrBlank()) {
             ApiClient.updateBaseUrl(persistedUrl)
             _backendBaseUrl.value = ApiClient.getBaseUrl()
         } else {
-            sharedPrefs.edit().remove("backend_url").apply()
             ApiClient.updateBaseUrl("https://one-earth-dadyagc7bcc9hpcb.eastasia-01.azurewebsites.net/")
             _backendBaseUrl.value = ApiClient.getBaseUrl()
         }
@@ -347,6 +346,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val loggedInUser = userDao.getUserById("me")
             if (loggedInUser != null) {
+                ApiClient.authToken = loggedInUser.token
                 if (loggedInUser.onboardingCompleted && loggedInUser.citizenOathAccepted) {
                     _currentScreen.value = Screen.MainDashboard
                 } else if (!loggedInUser.onboardingCompleted) {
@@ -368,6 +368,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _selectedRoomId.value = null
             _activeNotification.value = null
+            ApiClient.authToken = null
             userDao.deleteUserById("me")
             _currentScreen.value = Screen.Splash
         }
@@ -530,10 +531,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val me = userDao.getUserById("me")
                 if (me != null && me.email.isNotBlank()) {
                     try {
-                        ApiClient.getService().registerUser(me)
+                        val reg = ApiClient.getService().registerUser(me)
+                        if (!reg.token.isNullOrBlank()) {
+                            ApiClient.authToken = reg.token
+                            saveUserAndRecalculateRank(reg.copy(id = "me"))
+                        }
                     } catch (e: Exception) {
                         try {
-                            ApiClient.getService().updateUserProfile(me.email.lowercase().trim(), me)
+                            val upd = ApiClient.getService().updateUserProfile(me.email.lowercase().trim(), me)
+                            if (!upd.token.isNullOrBlank()) {
+                                ApiClient.authToken = upd.token
+                                saveUserAndRecalculateRank(upd.copy(id = "me"))
+                            }
                         } catch (updateEx: Exception) {
                             // Safe fallback
                         }
@@ -786,6 +795,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (_isBackendConnected.value) {
                 try {
                     val remoteUser = ApiClient.getService().loginUser(LoginRequest(lowercaseId, passphraseInput))
+                    ApiClient.authToken = remoteUser.token
                     val clonedMe = remoteUser.copy(id = "me")
                     saveUserAndRecalculateRank(clonedMe)
                     userDao.insertUser(remoteUser.copy(id = remoteUser.email.lowercase()))
@@ -1061,13 +1071,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
             // Try real server registration (attempt directly to ensure real-time storage)
             try {
-                ApiClient.getService().registerUser(user)
+                val registeredUser = ApiClient.getService().registerUser(user)
+                ApiClient.authToken = registeredUser.token
+                saveUserAndRecalculateRank(registeredUser.copy(id = "me"))
                 _isBackendConnected.value = true
                 _toastMessage.emit("Security Passport registered online.")
             } catch (e: Exception) {
                 // If register fails because user already exists on the server, try to update their profile
                 try {
-                    ApiClient.getService().updateUserProfile(user.email.lowercase().trim(), user)
+                    val updatedProfile = ApiClient.getService().updateUserProfile(user.email.lowercase().trim(), user)
+                    ApiClient.authToken = updatedProfile.token ?: ApiClient.authToken
+                    saveUserAndRecalculateRank(updatedProfile.copy(id = "me"))
                     _isBackendConnected.value = true
                     _toastMessage.emit("Security Passport updated online.")
                 } catch (ex: Exception) {
@@ -1305,6 +1319,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             chatDao.updateRoom(updated)
             _selectedRoomId.value = roomId
             markRoomAsRead(roomId)
+            if (_isBackendConnected.value) {
+                try {
+                    ApiClient.getService().swapRoom(roomId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             _toastMessage.emit("Focus Connected! Dialogue established.")
         }
     }
@@ -1316,6 +1337,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             chatDao.updateRoom(updated)
             if (_selectedRoomId.value == roomId) {
                 _selectedRoomId.value = null
+            }
+            if (_isBackendConnected.value) {
+                try {
+                    ApiClient.getService().archiveRoom(roomId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
             _toastMessage.emit("Connection archived. Vacated slot for focus.")
         }

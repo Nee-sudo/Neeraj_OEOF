@@ -80,6 +80,12 @@ interface OneEarthApiService {
 
     @DELETE("api/chat/rooms/{roomId}")
     suspend fun deleteChatRoom(@Path("roomId") roomId: Int): Map<String, Boolean>
+
+    @POST("api/chat/rooms/{roomId}/swap")
+    suspend fun swapRoom(@Path("roomId") roomId: Int): ChatRoomEntity
+
+    @POST("api/chat/rooms/{roomId}/archive")
+    suspend fun archiveRoom(@Path("roomId") roomId: Int): ChatRoomEntity
 }
 
 // ==========================================
@@ -87,6 +93,7 @@ interface OneEarthApiService {
 // ==========================================
 
 object ApiClient {
+    var authToken: String? = null
     private var currentUrl = "https://one-earth-dadyagc7bcc9hpcb.eastasia-01.azurewebsites.net/" // Live cloud development backend
     private var retrofit: Retrofit? = null
     private var itemService: OneEarthApiService? = null
@@ -116,6 +123,17 @@ object ApiClient {
                 .connectTimeout(5, TimeUnit.SECONDS)
                 .readTimeout(8, TimeUnit.SECONDS)
                 .writeTimeout(5, TimeUnit.SECONDS)
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val newRequest = if (!authToken.isNullOrBlank()) {
+                        request.newBuilder()
+                            .header("Authorization", "Bearer $authToken")
+                            .build()
+                    } else {
+                        request
+                    }
+                    chain.proceed(newRequest)
+                }
                 .addInterceptor(logging)
                 .build()
 
