@@ -745,9 +745,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 isWaiting = !makeActive
             )
             
-            val newRoomId = chatDao.insertRoom(newRoom).toInt()
+            var finalRoomId = 0
+            var remoteRoomCreated: ChatRoomEntity? = null
+            
+            // Sync with backend FIRST if connected to obtain the proper server sequential ID
+            if (_isBackendConnected.value) {
+                try {
+                    val remoteRoom = ApiClient.getService().createChatRoom(newRoom.copy(id = 0))
+                    finalRoomId = remoteRoom.id
+                    remoteRoomCreated = remoteRoom
+                } catch (e: Exception) {
+                    android.util.Log.e("AppViewModel", "Failed to create remote room synchronically: ${e.message}", e)
+                }
+            }
+            
+            // Fallback to local auto-increment ID if backend creation failed or is offline
+            if (finalRoomId <= 0) {
+                finalRoomId = chatDao.insertRoom(newRoom).toInt()
+            } else {
+                remoteRoomCreated?.let {
+                    chatDao.insertRoom(it.copy(isActive = makeActive, isWaiting = !makeActive))
+                }
+            }
+            
             val seedMessage = ChatMessageEntity(
-                roomId = newRoomId,
+                roomId = finalRoomId,
                 senderId = "other",
                 senderName = user.name,
                 messageText = "Greetings. I am honored to synchronize minds with you.",
@@ -756,7 +778,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
             chatDao.insertMessage(seedMessage)
             
-            _selectedRoomId.value = newRoomId
+            _selectedRoomId.value = finalRoomId
             _currentTab.value = DashboardTab.Messaging
             closeProfileDialog()
             
@@ -766,11 +788,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _toastMessage.emit("${user.name} queued. Terminal capacity at limit (Max 3). Swap connections in Messaging tab!")
             }
 
-            // Sync with backend
-            if (_isBackendConnected.value) {
+            // Dispatch seed message to backend
+            if (_isBackendConnected.value && finalRoomId > 0) {
                 try {
-                    val remoteRoom = ApiClient.getService().createChatRoom(newRoom.copy(id = newRoomId))
-                    ApiClient.getService().sendChatMessage(remoteRoom.id, seedMessage)
+                    ApiClient.getService().sendChatMessage(finalRoomId, seedMessage)
                 } catch (e: Exception) {
                     // Fail-safe
                 }
