@@ -109,6 +109,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // All registered users except "me" for Find Friends
     val allFriends: StateFlow<List<UserEntity>> = userDao.getAllFriendsFlow()
+        .combine(currentUserFlow) { friends, me ->
+            if (me == null) {
+                friends
+            } else {
+                val myEmail = me.email.lowercase().trim()
+                val myUsername = me.username.lowercase().trim().removePrefix("@")
+                friends.filter { friend ->
+                    val friendEmail = friend.email.lowercase().trim()
+                    val friendUsername = friend.username.lowercase().trim().removePrefix("@")
+                    friendEmail != myEmail && friendUsername != myUsername
+                }
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Active Mission Flow
@@ -263,6 +276,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        if (cleanUrl.contains("azurewebsite.net") && !cleanUrl.contains("azurewebsites.net")) {
+            cleanUrl = cleanUrl.replace("azurewebsite.net", "azurewebsites.net")
+        }
         ApiClient.updateBaseUrl(cleanUrl)
         _backendBaseUrl.value = ApiClient.getBaseUrl()
         sharedPrefs.edit().putString("backend_url", ApiClient.getBaseUrl()).apply()
@@ -326,8 +342,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // Load persistent backend URL if set
         val persistedUrl = sharedPrefs.getString("backend_url", null)
         if (!persistedUrl.isNullOrBlank()) {
-            ApiClient.updateBaseUrl(persistedUrl)
+            val correctedUrl = if (persistedUrl.contains("azurewebsite.net") && !persistedUrl.contains("azurewebsites.net")) {
+                persistedUrl.replace("azurewebsite.net", "azurewebsites.net")
+            } else {
+                persistedUrl
+            }
+            ApiClient.updateBaseUrl(correctedUrl)
             _backendBaseUrl.value = ApiClient.getBaseUrl()
+            sharedPrefs.edit().putString("backend_url", ApiClient.getBaseUrl()).apply()
         } else {
             ApiClient.updateBaseUrl("https://one-earth-dadyagc7bcc9hpcb.eastasia-01.azurewebsites.net/")
             _backendBaseUrl.value = ApiClient.getBaseUrl()

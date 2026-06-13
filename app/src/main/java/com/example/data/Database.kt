@@ -159,7 +159,7 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id != 'me' AND id NOT LIKE 'user_%' ORDER BY (knowledgeCredits + contributionCredits) DESC")
     fun getLeaderboardUsersFlow(): Flow<List<UserEntity>>
 
-    @Query("SELECT * FROM users WHERE id != 'me' AND id NOT LIKE 'user_%' AND LOWER(email) != (SELECT LOWER(email) FROM users WHERE id = 'me' LIMIT 1) AND LOWER(username) != (SELECT LOWER(username) FROM users WHERE id = 'me' LIMIT 1) ORDER BY name ASC")
+    @Query("SELECT * FROM users WHERE id != 'me' AND id NOT LIKE 'user_%' ORDER BY name ASC")
     fun getAllFriendsFlow(): Flow<List<UserEntity>>
 }
 
