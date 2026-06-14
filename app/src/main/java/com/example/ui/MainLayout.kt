@@ -3924,6 +3924,20 @@ fun MessagingTab(viewModel: AppViewModel) {
     val messagesList by viewModel.currentChatMessages.collectAsState()
 
     var chatMessageText by remember { mutableStateOf("") }
+    val typingUsers by viewModel.typingUsers.collectAsState()
+
+    LaunchedEffect(chatMessageText) {
+        val roomId = selectedId
+        if (roomId != null) {
+            if (chatMessageText.isNotEmpty()) {
+                viewModel.sendTyping(roomId)
+                delay(3000)
+                viewModel.sendStopTyping(roomId)
+            } else {
+                viewModel.sendStopTyping(roomId)
+            }
+        }
+    }
     var roomToDelete by remember { mutableStateOf<ChatRoomEntity?>(null) }
 
     if (roomToDelete != null) {
@@ -4424,6 +4438,18 @@ fun MessagingTab(viewModel: AppViewModel) {
 
             // Lock typing unless the connection is fully active
             val isConnectionActive = activeRoom?.isActive == true
+            
+            // Typing indicator
+            val typingUser = typingUsers[selectedId]
+            if (typingUser != null) {
+                Text(
+                    text = "$typingUser is typing...",
+                    color = RegalGold,
+                    fontSize = 11.sp,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                    modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)
+                )
+            }
 
             // Keyboard bottom write tray
             Row(
