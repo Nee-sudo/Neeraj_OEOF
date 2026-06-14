@@ -17,5 +17,3 @@ local.properties
 .env
 debug.keystore
 /backend/node_modules
-#/backend/backend
-#/app/app

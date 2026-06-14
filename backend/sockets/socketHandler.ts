@@ -69,30 +69,6 @@ export const setupSocketHandler = (io: Server) => {
       }
     });
 
-    // Listen for message delivered receipts
-    socket.on('message_delivered', (data: { roomId: number; timestamp: number; senderName: string }) => {
-      try {
-        const { roomId, timestamp, senderName } = data;
-        const roomChannel = `room_${roomId}`;
-        io.to(roomChannel).emit('message_delivered', { roomId, timestamp, senderName });
-        console.log(`🚚 WebSockets: Message delivered receipt in ${roomChannel} for ${senderName}`);
-      } catch (error) {
-        console.error("WebSockets error on message_delivered:", error);
-      }
-    });
-
-    // Listen for message read receipts
-    socket.on('message_read', (data: { roomId: number; timestamp: number; senderName: string }) => {
-      try {
-        const { roomId, timestamp, senderName } = data;
-        const roomChannel = `room_${roomId}`;
-        io.to(roomChannel).emit('message_read', { roomId, timestamp, senderName });
-        console.log(`📖 WebSockets: Message read receipt in ${roomChannel} for ${senderName}`);
-      } catch (error) {
-        console.error("WebSockets error on message_read:", error);
-      }
-    });
-
     // Broadcast feed update when a new post or reaction occurs
     socket.on('post_broadcast', (data: { type: string; postId?: number }) => {
       io.emit('feed_updated', data);

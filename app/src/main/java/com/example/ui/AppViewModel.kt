@@ -37,7 +37,7 @@ data class InAppNotification(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-class AppViewModel(application: Application) : AndroidViewModel(application), SocketManager.SocketEventListener {
+class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
     private val userDao = db.userDao()
@@ -140,9 +140,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
     private val _selectedRoomId = MutableStateFlow<Int?>(null)
     val selectedRoomId: StateFlow<Int?> = _selectedRoomId.asStateFlow()
 
-    private val _typingUsers = MutableStateFlow<Map<Int, String?>>(emptyMap())
-    val typingUsers: StateFlow<Map<Int, String?>> = _typingUsers.asStateFlow()
-
     private val _activeNotification = MutableStateFlow<InAppNotification?>(null)
     val activeNotification: StateFlow<InAppNotification?> = _activeNotification.asStateFlow()
 
@@ -214,11 +211,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
 
     fun setAppInForeground(inForeground: Boolean) {
         _isAppInForeground.value = inForeground
-        if (inForeground) {
-            SocketManager.connect(ApiClient.getBaseUrl())
-        } else {
-            SocketManager.disconnect()
-        }
     }
 
     // Theme toggle state
@@ -290,10 +282,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
         ApiClient.updateBaseUrl(cleanUrl)
         _backendBaseUrl.value = ApiClient.getBaseUrl()
         sharedPrefs.edit().putString("backend_url", ApiClient.getBaseUrl()).apply()
-        
-        // Update Socket.IO connection
-        SocketManager.connect(ApiClient.getBaseUrl())
-
         viewModelScope.launch {
             _isConnectingToBackend.value = true
             _toastMessage.emit("Connecting to Cosmos Network at: ${ApiClient.getBaseUrl()}...")
@@ -370,8 +358,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
         prepopulateDb()
         // Start backend connection monitoring
         startBackendHealthChecking()
-        // Initialize Socket.IO connection
-        setupSocketManager()
+        // Start real-time chat messages polling
+        startRealtimeChatPolling()
         // Check if user is already logged in
         checkAutoLogin()
     }
@@ -449,126 +437,111 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                _selectedRoomId.value == roomId
     }
 
-    private fun setupSocketManager() {
-        SocketManager.setListener(this)
-        SocketManager.connect(ApiClient.getBaseUrl())
-    }
-
-    override fun onNewMessage(message: ChatMessageEntity) {
+    private fun startRealtimeChatPolling() {
         viewModelScope.launch {
-            val user = userDao.getUserById("me")
-            val myName = user?.name ?: "Me"
-            
-            val localMatch = chatDao.getMessageByRoomSenderAndText(message.roomId, message.senderId, message.messageText)
-            val alreadyExists = localMatch != null
-            if (localMatch != null && localMatch.id != message.id) {
-                chatDao.deleteMessage(localMatch)
-            }
-            chatDao.insertMessage(message)
-
-            // Check if it's an incoming message from the other participant
-            if (!message.senderName.equals(myName, ignoreCase = true) && 
-                !message.senderName.equals("Me", ignoreCase = true) &&
-                !message.senderId.startsWith("read_receipt") && 
-                !message.senderId.startsWith("delivered_receipt")) {
-                
-                // Direct delivery receipt triggered as it has reached the client
-                triggerDeliveryReceipt(message.roomId, message.timestamp)
-                
-                if (!alreadyExists && !isChatRoomOpen(message.roomId) && message.timestamp >= appStartedTime - 5000) {
-                    val notifKey = "${message.roomId}_${message.timestamp}"
-                    if (!shownNotificationKeys.contains(notifKey)) {
-                        shownNotificationKeys.add(notifKey)
-                        _activeNotification.value = InAppNotification(
-                            roomId = message.roomId,
-                            senderName = message.senderName,
-                            messageText = message.messageText
-                        )
+            var allRoomsPollTick = 0
+            while (true) {
+                if (_isAppInForeground.value) {
+                    try {
+                        val roomId = _selectedRoomId.value
+                        val user = userDao.getUserById("me")
+                        if (user == null) {
+                            _activeNotification.value = null
+                            kotlinx.coroutines.delay(1500)
+                            continue
+                        }
+                        val myName = user.name ?: "Me"
+                        
+                        // 1. Poll currently open/active chat room for immediate responsiveness (every 1.5s)
+                        if (roomId != null && _isBackendConnected.value) {
+                            val remoteMessages = ApiClient.getService().getChatMessages(roomId)
+                            var latestIncomingTime = 0L
+                            remoteMessages.forEach { msg ->
+                                val localMatch = chatDao.getMessageByRoomSenderAndText(msg.roomId, msg.senderId, msg.messageText)
+                                val alreadyExists = localMatch != null
+                                if (localMatch != null && localMatch.id != msg.id) {
+                                    chatDao.deleteMessage(localMatch)
+                                }
+                                chatDao.insertMessage(msg)
+                                
+                                // Check if it's an incoming message from the other participant
+                                if (!msg.senderName.equals(myName, ignoreCase = true) && 
+                                    !msg.senderName.equals("Me", ignoreCase = true) &&
+                                    !msg.senderId.startsWith("read_receipt") && 
+                                    !msg.senderId.startsWith("delivered_receipt")) {
+                                    
+                                    // Direct delivery receipt triggered as it has reached the client
+                                    triggerDeliveryReceipt(roomId, msg.timestamp)
+                                    
+                                    if (!alreadyExists && !isChatRoomOpen(roomId) && msg.timestamp >= appStartedTime - 5000) {
+                                        val notifKey = "${roomId}_${msg.timestamp}"
+                                        if (!shownNotificationKeys.contains(notifKey)) {
+                                            shownNotificationKeys.add(notifKey)
+                                            _activeNotification.value = InAppNotification(
+                                                roomId = roomId,
+                                                senderName = msg.senderName,
+                                                messageText = msg.messageText
+                                            )
+                                        }
+                                    }
+                                    
+                                    if (msg.timestamp > latestIncomingTime) {
+                                        latestIncomingTime = msg.timestamp
+                                    }
+                                }
+                            }
+                            if (latestIncomingTime > 0) {
+                                triggerReadReceipt(roomId, latestIncomingTime)
+                            }
+                        }
+                        
+                        // 2. Poll other background active rooms to trigger Delivery status in the background (every ~4.5s)
+                        allRoomsPollTick++
+                        if (allRoomsPollTick >= 3 && _isBackendConnected.value) {
+                            allRoomsPollTick = 0
+                            // Safely collect active rooms
+                            val activeRooms = chatDao.getActiveRoomsFlow().first()
+                            activeRooms.forEach { activeRoom ->
+                                if (activeRoom.id != roomId) {
+                                    val remoteMsgs = ApiClient.getService().getChatMessages(activeRoom.id)
+                                    remoteMsgs.forEach { msg ->
+                                        val localMatch = chatDao.getMessageByRoomSenderAndText(msg.roomId, msg.senderId, msg.messageText)
+                                        val alreadyExists = localMatch != null
+                                        if (localMatch != null && localMatch.id != msg.id) {
+                                            chatDao.deleteMessage(localMatch)
+                                        }
+                                        chatDao.insertMessage(msg)
+                                        
+                                        // Trigger Delivery receipt instantly
+                                        if (!msg.senderName.equals(myName, ignoreCase = true) && 
+                                            !msg.senderName.equals("Me", ignoreCase = true) &&
+                                            !msg.senderId.startsWith("read_receipt") && 
+                                            !msg.senderId.startsWith("delivered_receipt")) {
+                                            
+                                            triggerDeliveryReceipt(activeRoom.id, msg.timestamp)
+          
+                                             if (!alreadyExists && !isChatRoomOpen(activeRoom.id) && msg.timestamp >= appStartedTime - 5000) {
+                                                 val notifKey = "${activeRoom.id}_${msg.timestamp}"
+                                                 if (!shownNotificationKeys.contains(notifKey)) {
+                                                     shownNotificationKeys.add(notifKey)
+                                                     _activeNotification.value = InAppNotification(
+                                                         roomId = activeRoom.id,
+                                                         senderName = msg.senderName,
+                                                         messageText = msg.messageText
+                                                     )
+                                                 }
+                                             }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Fail-safe
                     }
                 }
-                
-                if (isChatRoomOpen(message.roomId)) {
-                    triggerReadReceipt(message.roomId, message.timestamp)
-                }
+                kotlinx.coroutines.delay(1500) // Poll every 1.5 seconds for real-time responsiveness
             }
-            
-            val room = chatDao.getRoomById(message.roomId)
-            if (room != null) {
-                chatDao.updateRoom(room.copy(
-                    lastMessage = message.messageText,
-                    lastMessageTime = message.timestamp
-                ))
-            }
-        }
-    }
-
-    override fun onMessageDelivered(roomId: Int, timestamp: Long, senderName: String) {
-        viewModelScope.launch {
-            val receipt = ChatMessageEntity(
-                roomId = roomId,
-                senderId = "delivered_receipt",
-                senderName = senderName,
-                messageText = timestamp.toString(),
-                timestamp = timestamp
-            )
-            chatDao.insertMessage(receipt)
-        }
-    }
-
-    override fun onMessageRead(roomId: Int, timestamp: Long, senderName: String) {
-        viewModelScope.launch {
-            val receipt = ChatMessageEntity(
-                roomId = roomId,
-                senderId = "read_receipt",
-                senderName = senderName,
-                messageText = timestamp.toString(),
-                timestamp = timestamp
-            )
-            chatDao.insertMessage(receipt)
-        }
-    }
-
-    override fun onTyping(roomId: Int, senderName: String) {
-        val current = _typingUsers.value.toMutableMap()
-        current[roomId] = senderName
-        _typingUsers.value = current
-    }
-
-    override fun onStopTyping(roomId: Int, senderName: String) {
-        val current = _typingUsers.value.toMutableMap()
-        if (current[roomId] == senderName) {
-            current.remove(roomId)
-        }
-        _typingUsers.value = current
-    }
-
-    override fun onConnect() {
-        _isBackendConnected.value = true
-        viewModelScope.launch {
-            chatDao.getActiveRoomsFlow().first().forEach { room ->
-                SocketManager.joinRoom(room.id)
-            }
-        }
-    }
-
-    override fun onDisconnect() {
-        // _isBackendConnected.value = false // Keep true if REST is still working? 
-        // Instructions say "backend health checking" handles _isBackendConnected for REST.
-    }
-
-    fun sendTyping(roomId: Int) {
-        viewModelScope.launch {
-            val user = userDao.getUserById("me")
-            val myName = user?.name ?: "Me"
-            SocketManager.sendTyping(roomId, myName)
-        }
-    }
-
-    fun sendStopTyping(roomId: Int) {
-        viewModelScope.launch {
-            val user = userDao.getUserById("me")
-            val myName = user?.name ?: "Me"
-            SocketManager.sendStopTyping(roomId, myName)
         }
     }
 
@@ -810,7 +783,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             closeProfileDialog()
             
             if (makeActive) {
-                SocketManager.joinRoom(finalRoomId)
                 _toastMessage.emit("Focus Connection initialized with ${user.name}!")
             } else {
                 _toastMessage.emit("${user.name} queued. Terminal capacity at limit (Max 3). Swap connections in Messaging tab!")
@@ -996,9 +968,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
 
     fun selectRoom(roomId: Int?) {
         _selectedRoomId.value = roomId
-        
         if (roomId != null) {
-            SocketManager.joinRoom(roomId)
             markRoomAsRead(roomId)
             if (_isBackendConnected.value) {
                 viewModelScope.launch {
@@ -1391,7 +1361,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             val updated = room.copy(isActive = true, isWaiting = false)
             chatDao.updateRoom(updated)
             _selectedRoomId.value = roomId
-            SocketManager.joinRoom(roomId)
             markRoomAsRead(roomId)
             if (_isBackendConnected.value) {
                 try {
@@ -1409,7 +1378,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             val room = chatDao.getRoomById(roomId) ?: return@launch
             val updated = room.copy(isActive = false, isWaiting = true)
             chatDao.updateRoom(updated)
-            SocketManager.leaveRoom(roomId)
             if (_selectedRoomId.value == roomId) {
                 _selectedRoomId.value = null
             }
@@ -1430,7 +1398,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             chatDao.markRoomAsDeleted(roomId)
             // chatDao.deleteRoomFromDb(roomId) // soft delete only so that it is not redownloaded and recreated during sync/polling
             chatDao.deleteMessagesForRoom(roomId)
-            SocketManager.leaveRoom(roomId)
             if (_selectedRoomId.value == roomId) {
                 _selectedRoomId.value = null
             }
@@ -1468,11 +1435,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 status = "Sent"
             )
 
-            // Insert locally first for UI responsiveness
-            chatDao.insertMessage(message)
-
             if (_isBackendConnected.value) {
-                SocketManager.sendMessage(message)
+                try {
+                    val savedMessageOnBackend = ApiClient.getService().sendChatMessage(roomId, message)
+                    val localDraft = chatDao.getMessageByRoomSenderAndText(roomId, "me", trimmed) ?:
+                                     chatDao.getMessageByRoomSenderAndText(roomId, myEmail, trimmed)
+                    if (localDraft != null) {
+                        chatDao.deleteMessage(localDraft)
+                    }
+                    chatDao.insertMessage(savedMessageOnBackend)
+                } catch (e: Exception) {
+                    chatDao.insertMessage(message)
+                }
+            } else {
+                chatDao.insertMessage(message)
             }
 
             val room = chatDao.getRoomById(roomId)
@@ -1482,6 +1458,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                     lastMessageTime = System.currentTimeMillis()
                 ))
             }
+
+            simulatePartnerReaction(roomId, message.timestamp)
         }
     }
 
@@ -1541,7 +1519,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             )
             chatDao.insertMessage(receipt)
             if (_isBackendConnected.value) {
-                SocketManager.sendReadReceipt(roomId, timestamp, myName)
+                try {
+                    ApiClient.getService().sendChatMessage(roomId, receipt)
+                } catch (e: Exception) { }
             }
         }
     }
@@ -1563,11 +1543,59 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             )
             chatDao.insertMessage(receipt)
             if (_isBackendConnected.value) {
-                SocketManager.sendDeliveryReceipt(roomId, timestamp, myName)
+                try {
+                    ApiClient.getService().sendChatMessage(roomId, receipt)
+                } catch (e: Exception) { }
             }
         }
     }
 
+    private fun simulatePartnerReaction(roomId: Int, messageTimestamp: Long) {
+        viewModelScope.launch {
+            val me = userDao.getUserById("me") ?: return@launch
+            val room = chatDao.getRoomById(roomId) ?: return@launch
+            val myName = me.name ?: "Me"
+            val parts = room.participantName.split(" | ")
+            val partnerName = if (parts.size == 2) {
+                val isCreator = parts[0].equals(myName, ignoreCase = true)
+                if (isCreator) parts[1] else parts[0]
+            } else {
+                room.participantName
+            }
+
+            // 1. WhatsApp Delivery indicator simulation
+            kotlinx.coroutines.delay(800)
+            val deliveryReceipt = ChatMessageEntity(
+                roomId = roomId,
+                senderId = "delivered_receipt",
+                senderName = partnerName,
+                messageText = messageTimestamp.toString(),
+                timestamp = messageTimestamp
+            )
+            chatDao.insertMessage(deliveryReceipt)
+            if (_isBackendConnected.value) {
+                try {
+                    ApiClient.getService().sendChatMessage(roomId, deliveryReceipt)
+                } catch (e: Exception) { }
+            }
+
+            // 2. WhatsApp Read receipt indicator simulation (Blue ticks!)
+            kotlinx.coroutines.delay(1000)
+            val readReceipt = ChatMessageEntity(
+                roomId = roomId,
+                senderId = "read_receipt",
+                senderName = partnerName,
+                messageText = messageTimestamp.toString(),
+                timestamp = messageTimestamp
+            )
+            chatDao.insertMessage(readReceipt)
+            if (_isBackendConnected.value) {
+                try {
+                    ApiClient.getService().sendChatMessage(roomId, readReceipt)
+                } catch (e: Exception) { }
+            }
+        }
+    }
 
     private fun getDynamicPartnerReply(name: String): String {
         return listOf(
