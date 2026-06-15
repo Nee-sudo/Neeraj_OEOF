@@ -3,10 +3,38 @@ import { getFirestoreDb } from '../config/database';
 import { IChatMessage } from '../models/ChatMessage';
 import { IChatRoom } from '../models/ChatRoom';
 import { getNextSequenceValue } from '../models/Counter';
+import { createNotificationDirectly } from '../controllers/notificationController';
+import { resolveRecipientId } from '../controllers/chatController';
+
+let ioInstance: Server | null = null;
+
+export const sendRealtimeNotification = (recipientId: string, notification: any) => {
+  if (ioInstance) {
+    const userChannel = `user_${recipientId.toLowerCase().trim()}`;
+    ioInstance.to(userChannel).emit('new_notification', notification);
+    console.log(`🔌 WebSockets: Dispatched real-time notification to ${userChannel}`, notification);
+  } else {
+    console.log(`🔌 WebSockets: Cannot send real-time notification, ioInstance is null.`);
+  }
+};
 
 export const setupSocketHandler = (io: Server) => {
+  ioInstance = io;
   io.on('connection', (socket: Socket) => {
     console.log(`🔌 WebSockets: Client connected (${socket.id})`);
+
+    // Listen to subscribe to user personal notification channel
+    socket.on('join_user', (data: { userId: string }) => {
+      const userChannel = `user_${String(data.userId).toLowerCase().trim()}`;
+      socket.join(userChannel);
+      console.log(`🔌 WebSockets: Client ${socket.id} joined personal channel ${userChannel}`);
+    });
+
+    socket.on('leave_user', (data: { userId: string }) => {
+      const userChannel = `user_${String(data.userId).toLowerCase().trim()}`;
+      socket.leave(userChannel);
+      console.log(`🔌 WebSockets: Client ${socket.id} left personal channel ${userChannel}`);
+    });
 
     // Listen to subscribe to a chat room channel
     socket.on('join_room', (data: { roomId: string | number }) => {
@@ -38,6 +66,22 @@ export const setupSocketHandler = (io: Server) => {
         };
         
         await db.collection('chatMessages').doc(String(nextId)).set(newMessage);
+
+        // Notify recipient of message
+        try {
+          const recipientId = await resolveRecipientId(db, Number(roomId), senderName);
+          if (recipientId) {
+            await createNotificationDirectly(
+              recipientId,
+              senderId,
+              "message",
+              `New message from ${senderName}`,
+              messageText
+            );
+          }
+        } catch (notifErr) {
+          console.error("Websocket message notification failure:", notifErr);
+        }
 
         // Update ChatRoom
         const roomRef = db.collection('chatRooms').doc(String(roomId));

@@ -3,6 +3,7 @@ import { getFirestoreDb } from '../config/database';
 import { IUser, calculateUserRank } from '../models/User';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { createNotificationDirectly } from './notificationController';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'one-earth-cosmic-secret-key-2026';
 
@@ -324,12 +325,99 @@ export const getAllUsers = async (req: Request, res: Response) => {
     const usersList: any[] = [];
     if (snapshot && snapshot.docs) {
       snapshot.docs.forEach((doc: any) => {
-        usersList.push(doc.data());
+        const data = doc.data();
+        if (data && data.email && data.name) {
+          usersList.push(data);
+        }
       });
     }
     res.status(200).json(usersList);
   } catch (error: any) {
     console.error("Firestore List Users Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const visitUserProfile = async (req: any, res: Response) => {
+  try {
+    const { userId } = req.params; // owner
+    const db = getFirestoreDb();
+    const myId = req.userId; // viewer
+
+    const cleanUserId = String(userId).toLowerCase().trim().replace(/^@/, '');
+    const cleanMyId = String(myId).toLowerCase().trim();
+
+    let resolvedRecipientId = cleanUserId;
+
+    // Resolve B's actual user document from database with email/username fallbacks
+    let userDocRef = db.collection('users').doc(cleanUserId);
+    let userDoc = await userDocRef.get();
+    
+    if (!userDoc.exists) {
+      const emailQuery = await db.collection('users').where('email', '==', cleanUserId).get();
+      if (!emailQuery.empty) {
+        userDocRef = db.collection('users').doc(emailQuery.docs[0].id);
+        userDoc = await userDocRef.get();
+      } else {
+        const queryWithAt = await db.collection('users').where('username', '==', `@${cleanUserId}`).get();
+        if (!queryWithAt.empty) {
+          userDocRef = db.collection('users').doc(queryWithAt.docs[0].id);
+          userDoc = await userDocRef.get();
+        } else {
+          const queryNoAt = await db.collection('users').where('username', '==', cleanUserId).get();
+          if (!queryNoAt.empty) {
+            userDocRef = db.collection('users').doc(queryNoAt.docs[0].id);
+            userDoc = await userDocRef.get();
+          }
+        }
+      }
+    }
+
+    if (userDoc.exists) {
+      resolvedRecipientId = userDoc.id; // Correct matching docId or email
+    }
+
+    const viewerDoc = await db.collection('users').doc(cleanMyId).get();
+    const viewerName = viewerDoc.exists ? (viewerDoc.data() as any).name : myId;
+
+    console.log(`[DEBUG PROFILE VIEW NOTIFICATION] viewerId: ${cleanMyId}, profileOwnerId: ${userId}, resolvedRecipientId: ${resolvedRecipientId}`);
+    console.log("[DEBUG PROFILE VIEW NOTIFICATION] executing createNotificationDirectly()...");
+
+    await createNotificationDirectly(
+      resolvedRecipientId,
+      cleanMyId,
+      "profile_view",
+      "Profile Visited",
+      `${viewerName} viewed your profile.`
+    );
+
+    res.status(200).json({ success: true, message: "Profile view recorded and notification dispatched." });
+  } catch (error: any) {
+    console.error("Error in visitUserProfile:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const sendFriendRequest = async (req: any, res: Response) => {
+  try {
+    const { userId } = req.params; // recipient
+    const db = getFirestoreDb();
+    const myId = req.userId; // sender
+
+    const senderDoc = await db.collection('users').doc(myId.toLowerCase().trim()).get();
+    const senderName = senderDoc.exists ? (senderDoc.data() as any).name : myId;
+
+    await createNotificationDirectly(
+      userId,
+      myId,
+      "friend_request",
+      "Friend Request Received",
+      `${senderName} sent you a friend request.`
+    );
+
+    res.status(200).json({ success: true, message: "Friend request sent and notification dispatched." });
+  } catch (error: any) {
+    console.error("Error in sendFriendRequest:", error);
     res.status(500).json({ error: error.message });
   }
 };

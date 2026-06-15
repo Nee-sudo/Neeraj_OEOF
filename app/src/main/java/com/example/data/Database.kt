@@ -95,6 +95,15 @@ data class ChatMessageEntity(
     val status: String = "Sent" // "Sent", "Delivered", or "Read"
 )
 
+@Entity(tableName = "chat_receipts")
+data class ChatReceiptEntity(
+    @PrimaryKey val id: String, // roomId_senderName_type
+    val roomId: Int,
+    val senderName: String,
+    val type: String, // "read" or "delivered"
+    val timestamp: Long
+)
+
 @Entity(tableName = "profile_visitors")
 data class ProfileVisitorEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -103,6 +112,24 @@ data class ProfileVisitorEntity(
     val visitorTerritory: String,
     val visitorFlag: String,
     val visitorRank: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "notifications")
+data class NotificationEntity(
+    @PrimaryKey val id: String,
+    val recipientId: String = "",
+    val senderId: String = "",
+    val type: String, // "Reaction", "Comment", "ProfileView", "Message", etc.
+    val title: String = "",
+    val body: String = "",
+    val isRead: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis(),
+    
+    // Additional requested fields
+    val senderName: String = "",
+    val senderFlag: String = "",
+    val messageText: String = "",
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -150,7 +177,7 @@ interface UserDao {
     @Query("DELETE FROM users")
     suspend fun deleteAllUsers()
 
-    @Query("DELETE FROM users WHERE id != 'me'")
+    @Query("DELETE FROM users WHERE id != 'me' AND id NOT IN ('gandhi_avatar', 'clara_nobel', 'kenya_leader', 'test@oneearth.io')")
     suspend fun deleteAllNonMeUsers()
 
     @Query("SELECT * FROM users WHERE isCandidate = 1 AND id != 'me' AND id NOT LIKE 'user_%' ORDER BY votesCount DESC, knowledgeCredits DESC")
@@ -159,7 +186,7 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE id != 'me' AND id NOT LIKE 'user_%' ORDER BY (knowledgeCredits + contributionCredits) DESC")
     fun getLeaderboardUsersFlow(): Flow<List<UserEntity>>
 
-    @Query("SELECT * FROM users WHERE id != 'me' AND id NOT LIKE 'user_%' ORDER BY name ASC")
+    @Query("SELECT * FROM users ORDER BY name ASC")
     fun getAllFriendsFlow(): Flow<List<UserEntity>>
 }
 
@@ -231,14 +258,41 @@ interface ChatDao {
     @Query("SELECT * FROM chat_messages WHERE roomId = :roomId ORDER BY timestamp ASC")
     fun getMessagesForRoomFlow(roomId: Int): Flow<List<ChatMessageEntity>>
 
+    @Query("SELECT * FROM chat_messages WHERE roomId = :roomId ORDER BY timestamp DESC LIMIT :limit")
+    fun getLatestMessagesFlow(roomId: Int, limit: Int): Flow<List<ChatMessageEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: ChatMessageEntity)
 
     @Query("SELECT * FROM chat_messages WHERE roomId = :roomId AND senderId = :senderId AND messageText = :messageText LIMIT 1")
     suspend fun getMessageByRoomSenderAndText(roomId: Int, senderId: String, messageText: String): ChatMessageEntity?
 
+    @Query("SELECT * FROM chat_messages WHERE roomId = :roomId AND senderId = :senderId AND senderName = :senderName ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getReceiptByRoomAndSenderName(roomId: Int, senderId: String, senderName: String): ChatMessageEntity?
+
     @Delete
     suspend fun deleteMessage(message: ChatMessageEntity)
+
+    @Transaction
+    suspend fun replaceLocalMessage(localMsg: ChatMessageEntity, remoteMsg: ChatMessageEntity) {
+        deleteMessage(localMsg)
+        insertMessage(remoteMsg)
+    }
+
+    @Query("SELECT * FROM chat_receipts WHERE roomId = :roomId")
+    fun getReceiptsForRoomFlow(roomId: Int): Flow<List<ChatReceiptEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertReceipt(receipt: ChatReceiptEntity)
+
+    @Query("SELECT * FROM chat_receipts WHERE roomId = :roomId AND LOWER(senderName) = LOWER(:senderName) AND type = :type LIMIT 1")
+    suspend fun getReceipt(roomId: Int, senderName: String, type: String): ChatReceiptEntity?
+
+    @Query("DELETE FROM chat_receipts WHERE roomId = :roomId")
+    suspend fun deleteReceiptsForRoom(roomId: Int)
+
+    @Query("DELETE FROM chat_receipts")
+    suspend fun deleteAllReceipts()
 
     @Query("UPDATE chat_rooms SET isDeleted = 1 WHERE id = :roomId")
     suspend fun markRoomAsDeleted(roomId: Int)
@@ -298,6 +352,27 @@ interface HallOfLegendsDao {
     suspend fun deleteAllLegends()
 }
 
+@Dao
+interface NotificationDao {
+    @Query("SELECT * FROM notifications ORDER BY createdAt DESC")
+    fun getNotificationsFlow(): Flow<List<NotificationEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNotification(notification: NotificationEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNotifications(notifications: List<NotificationEntity>)
+
+    @Query("UPDATE notifications SET isRead = 1 WHERE id = :id")
+    suspend fun markAsRead(id: String)
+
+    @Query("UPDATE notifications SET isRead = 1")
+    suspend fun markAllAsRead()
+
+    @Query("DELETE FROM notifications")
+    suspend fun deleteAllNotifications()
+}
+
 // ==========================================
 // APP DATABASE SPECIFICATION
 // ==========================================
@@ -309,11 +384,13 @@ interface HallOfLegendsDao {
         CommentEntity::class,
         ChatRoomEntity::class,
         ChatMessageEntity::class,
+        ChatReceiptEntity::class,
         ProfileVisitorEntity::class,
         ImperialMissionEntity::class,
-        HallOfLegendsEntity::class
+        HallOfLegendsEntity::class,
+        NotificationEntity::class
     ],
-    version = 6,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -324,6 +401,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun visitorDao(): ProfileVisitorDao
     abstract fun missionDao(): MissionDao
     abstract fun legendsDao(): HallOfLegendsDao
+    abstract fun notificationDao(): NotificationDao
 
     companion object {
         @Volatile

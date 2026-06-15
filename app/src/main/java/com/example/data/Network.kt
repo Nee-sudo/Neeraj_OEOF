@@ -19,6 +19,17 @@ data class LoginRequest(val identifier: String, val passphrase: String)
 
 data class ReactionRequest(val userId: String, val reactionType: String)
 
+data class NotificationDTO(
+    val id: String,
+    val recipientId: String,
+    val senderId: String,
+    val type: String,
+    val title: String,
+    val body: String,
+    val isRead: Boolean,
+    val createdAt: Long
+)
+
 // ==========================================
 // RETROFIT API INTERFACE
 // ==========================================
@@ -75,6 +86,9 @@ interface OneEarthApiService {
     @GET("api/chat/rooms/{roomId}/messages")
     suspend fun getChatMessages(@Path("roomId") roomId: Int): List<ChatMessageEntity>
 
+    @GET("api/chat/rooms/{roomId}/receipts")
+    suspend fun getChatReceipts(@Path("roomId") roomId: Int): List<ChatReceiptEntity>
+
     @POST("api/chat/rooms/{roomId}/messages")
     suspend fun sendChatMessage(@Path("roomId") roomId: Int, @Body message: ChatMessageEntity): ChatMessageEntity
 
@@ -86,6 +100,23 @@ interface OneEarthApiService {
 
     @POST("api/chat/rooms/{roomId}/archive")
     suspend fun archiveRoom(@Path("roomId") roomId: Int): ChatRoomEntity
+
+    // Notification Endpoints
+    @GET("api/notifications")
+    suspend fun getNotifications(): List<NotificationDTO>
+
+    @PUT("api/notifications/{id}/read")
+    suspend fun markNotificationAsRead(@Path("id") id: String): NotificationDTO
+
+    @POST("api/notifications/read-all")
+    suspend fun markAllNotificationsAsRead(): Map<String, Boolean>
+
+    // Profile visit & Friend request endpoints
+    @POST("api/users/{userId}/visit")
+    suspend fun recordProfileVisit(@Path("userId") userId: String): Map<String, Boolean>
+
+    @POST("api/users/{userId}/friend-request")
+    suspend fun sendFriendRequest(@Path("userId") userId: String): Map<String, Boolean>
 }
 
 // ==========================================
@@ -94,7 +125,7 @@ interface OneEarthApiService {
 
 object ApiClient {
     var authToken: String? = null
-    private var currentUrl = "https://one-earth-dadyagc7bcc9hpcb.eastasia-01.azurewebsites.net/" // Live cloud development backend
+    private var currentUrl = "https://boolean-lexmark-terrorism-yellow.trycloudflare.com/" // Live cloud development backend
     private var retrofit: Retrofit? = null
     private var itemService: OneEarthApiService? = null
 

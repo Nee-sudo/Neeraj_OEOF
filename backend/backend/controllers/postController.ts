@@ -4,6 +4,7 @@ import { IPost } from '../models/Post';
 import { IComment } from '../models/Comment';
 import { getNextSequenceValue } from '../models/Counter';
 import { IUser, calculateUserRank } from '../models/User';
+import { createNotificationDirectly } from './notificationController';
 
 export function normalizeBackendPost(raw: any): IPost {
   if (!raw) {
@@ -170,7 +171,8 @@ export const reactToPost = async (req: Request, res: Response) => {
     }
 
     const db = getFirestoreDb();
-    const cleanUserId = String(userId).trim();
+    const actorId = (req as any).userId || userId;
+    const cleanUserId = String(actorId).trim();
     const cleanType = String(reactionType).toLowerCase().trim();
 
     let reactedField: 'reactedWiseUsers' | 'reactedHelpfulUsers' | 'reactedInspiringUsers' = 'reactedWiseUsers';
@@ -192,6 +194,9 @@ export const reactToPost = async (req: Request, res: Response) => {
     }
 
     let finalPostResult: IPost | null = null;
+
+    let notifyRecipient: string | null = null;
+    let notifySender: string | null = null;
 
     // Run custom dynamic atomic Transaction (Bug #5)
     await db.runTransaction(async (transaction) => {
@@ -222,12 +227,30 @@ export const reactToPost = async (req: Request, res: Response) => {
       }
 
       post[reactedField] = reactedList.join(',');
-      transaction.set(postDocRef, post);
 
-      // If award is earned, adjust original author credits atomically
-      if (isAdded && post.authorId) {
+      // Choose rewarded history field based on reactedField to prevent double credit allocation
+      const rewardedField = reactedField === 'reactedWiseUsers' ? 'rewardedWiseUsers' :
+                            reactedField === 'reactedHelpfulUsers' ? 'rewardedHelpfulUsers' :
+                            'rewardedInspiringUsers';
+
+      const currentRewardedStr = (post as any)[rewardedField] || "";
+      let rewardedList = currentRewardedStr.split(',').map((s: string) => s.trim()).filter(Boolean);
+
+      let awardCredits = false;
+      if (isAdded) {
+        if (!rewardedList.includes(cleanUserId)) {
+          rewardedList.push(cleanUserId);
+          (post as any)[rewardedField] = rewardedList.join(',');
+          awardCredits = true;
+        }
+      }
+
+      // If award is earned, fetch dynamic author update details BEFORE writing anything
+      let authorToUpdate: any = null;
+      let authorDocRef: any = null;
+      if (isAdded && awardCredits && post.authorId) {
         const authorIdClean = post.authorId.toLowerCase().trim().replace(/^@/, '');
-        let authorDocRef = db.collection('users').doc(authorIdClean);
+        authorDocRef = db.collection('users').doc(authorIdClean);
         let authorDoc = await transaction.get(authorDocRef);
         
         if (!authorDoc.exists) {
@@ -246,20 +269,51 @@ export const reactToPost = async (req: Request, res: Response) => {
         }
 
         if (authorDoc.exists) {
-          const author = authorDoc.data() as IUser;
-          author.knowledgeCredits = (author.knowledgeCredits || 0) + creditsAward.kb;
-          author.contributionCredits = (author.contributionCredits || 0) + creditsAward.cb;
-          author.reputationScore = Math.min(100, (author.reputationScore || 98) + 1);
-          author.currentRank = calculateUserRank(author.knowledgeCredits, author.contributionCredits);
-
-          transaction.set(authorDocRef, author);
+          authorToUpdate = authorDoc.data() as IUser;
+          authorToUpdate.knowledgeCredits = (authorToUpdate.knowledgeCredits || 0) + creditsAward.kb;
+          authorToUpdate.contributionCredits = (authorToUpdate.contributionCredits || 0) + creditsAward.cb;
+          authorToUpdate.reputationScore = Math.min(100, (authorToUpdate.reputationScore || 98) + 1);
+          authorToUpdate.currentRank = calculateUserRank(authorToUpdate.knowledgeCredits, authorToUpdate.contributionCredits);
         }
+      }
+
+      // NOW PERFORM ALL atomic writes (sets) together after all transaction reads
+      transaction.set(postDocRef, post);
+      if (authorToUpdate && authorDocRef) {
+        transaction.set(authorDocRef, authorToUpdate);
+      }
+
+      // Save reaction notification details to be triggered after successful transaction
+      const postAuthorId = post.authorId || (post as any).author_id;
+      if (isAdded && postAuthorId && postAuthorId.toLowerCase().trim() !== cleanUserId.toLowerCase().trim()) {
+        notifyRecipient = postAuthorId;
+        notifySender = cleanUserId;
       }
 
       finalPostResult = post;
     });
 
     if (finalPostResult) {
+      // Trigger notification after transaction successfully commits to avoid lockups
+      if (notifyRecipient && notifySender) {
+        try {
+          const userDoc = await db.collection('users').doc(notifySender!).get();
+          const userName = userDoc.exists ? (userDoc.data() as any).name : "Someone";
+          
+          console.log(`[DEBUG REACTION NOTIFICATION] reactionType: ${reactionType}, postId: ${postId}, postAuthorId: ${notifyRecipient}, reactorId: ${notifySender}, recipientId: ${notifyRecipient}`);
+          console.log("[DEBUG REACTION NOTIFICATION] executing createNotificationDirectly()...");
+
+          await createNotificationDirectly(
+            notifyRecipient!,
+            notifySender!,
+            "reaction",
+            "New Reaction on your Post",
+            `${userName} reacted with ${reactionType} to your post.`
+          );
+        } catch (e) {
+          console.error("Reaction notification error:", e);
+        }
+      }
       res.status(200).json(normalizeBackendPost(finalPostResult));
     } else {
       res.status(400).json({ error: "Atomic transaction failed to finalize." });
@@ -324,6 +378,42 @@ export const addComment = async (req: Request, res: Response) => {
     };
 
     await db.collection('comments').doc(String(nextId)).set(comment);
+
+    try {
+      // Trigger comment notification with robust post lookup (handles custom doc ID structures)
+      let postSnapshot = await db.collection('posts').doc(String(postId)).get();
+      if (!postSnapshot.exists) {
+        const query = await db.collection('posts').where('id', '==', Number(postId)).get();
+        if (!query.empty) {
+          postSnapshot = query.docs[0] as any;
+        }
+      }
+      if (postSnapshot && postSnapshot.exists) {
+        const post = postSnapshot.data() as IPost;
+        const postAuthorId = post.authorId || (post as any).author_id;
+        const commentAuthorEmail = (req as any).userId;
+        
+        console.log(`[DEBUG COMMENT NOTIFICATION] commentAuthor: ${commentAuthorEmail}, postAuthor: ${postAuthorId}, recipientId: ${postAuthorId}`);
+        
+        if (!commentAuthorEmail) {
+          console.error("[COMMENT NOTIFICATION] No userId found in request");
+        } else if (!postAuthorId) {
+          console.error("[COMMENT NOTIFICATION] No postAuthorId found for post ID " + postId);
+        } else if (postAuthorId.toLowerCase().trim() !== commentAuthorEmail.toLowerCase().trim()) {
+          console.log("[DEBUG COMMENT NOTIFICATION] executing createNotificationDirectly()...");
+          await createNotificationDirectly(
+            postAuthorId,
+            commentAuthorEmail,
+            "comment",
+            "New Comment on your Post",
+            `${comment.authorName} commented: "${comment.content.substring(0, 40)}${comment.content.length > 40 ? '...' : ''}"`
+          );
+        }
+      }
+    } catch (notifErr) {
+      console.error("Comment notification failure:", notifErr);
+    }
+
     res.status(201).json(comment);
   } catch (error: any) {
     console.error("Firestore addComment Error:", error);

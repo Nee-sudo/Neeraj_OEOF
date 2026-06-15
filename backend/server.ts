@@ -11,6 +11,7 @@ import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import postRoutes from './routes/posts';
 import chatRoutes from './routes/chats';
+import notificationRoutes from './routes/notifications';
 
 // Seed Initial Data check
 import { seedDatabaseIfEmpty } from './seed';
@@ -49,6 +50,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', verifyToken, userRoutes);
 app.use('/api/posts', verifyToken, postRoutes);
 app.use('/api/chat', verifyToken, chatRoutes);
+app.use('/api/notifications', verifyToken, notificationRoutes);
 
 // Socket Handler setup
 setupSocketHandler(io);

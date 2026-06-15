@@ -20,10 +20,12 @@ object SocketManager {
         fun onStopTyping(roomId: Int, senderName: String)
         fun onConnect()
         fun onDisconnect()
+        fun onNewNotification(notification: NotificationDTO)
     }
 
     private var listener: SocketEventListener? = null
     private val joinedRooms = mutableSetOf<Int>()
+    private val joinedUsers = mutableSetOf<String>()
     private var currentUrl: String? = null
 
     fun setListener(listener: SocketEventListener) {
@@ -52,6 +54,13 @@ object SocketManager {
                         val data = JSONObject()
                         data.put("roomId", roomId)
                         socket?.emit("join_room", data)
+                    }
+                }
+                synchronized(joinedUsers) {
+                    joinedUsers.forEach { userId ->
+                        val data = JSONObject()
+                        data.put("userId", userId)
+                        socket?.emit("join_user", data)
                     }
                 }
             }
@@ -108,6 +117,19 @@ object SocketManager {
                 listener?.onStopTyping(roomId, senderName)
             }
 
+            socket?.on("new_notification") { args ->
+                val data = args[0] as JSONObject
+                try {
+                    val adapter = moshi.adapter(NotificationDTO::class.java)
+                    val notification = adapter.fromJson(data.toString())
+                    if (notification != null) {
+                        listener?.onNewNotification(notification)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing new_notification", e)
+                }
+            }
+
             socket?.connect()
         } catch (e: URISyntaxException) {
             Log.e(TAG, "Socket connection failed", e)
@@ -122,10 +144,41 @@ object SocketManager {
         synchronized(joinedRooms) {
             joinedRooms.clear()
         }
+        synchronized(joinedUsers) {
+            joinedUsers.clear()
+        }
+    }
+
+    fun joinUser(userId: String) {
+        val cleanId = userId.lowercase().trim()
+        synchronized(joinedUsers) {
+            if (joinedUsers.contains(cleanId)) {
+                return
+            }
+            joinedUsers.add(cleanId)
+        }
+        val data = JSONObject()
+        data.put("userId", cleanId)
+        socket?.emit("join_user", data)
+        Log.d(TAG, "Joined user channel: $cleanId")
+    }
+
+    fun leaveUser(userId: String) {
+        val cleanId = userId.lowercase().trim()
+        synchronized(joinedUsers) {
+            joinedUsers.remove(cleanId)
+        }
+        val data = JSONObject()
+        data.put("userId", cleanId)
+        socket?.emit("leave_user", data)
+        Log.d(TAG, "Left user channel: $cleanId")
     }
 
     fun joinRoom(roomId: Int) {
         synchronized(joinedRooms) {
+            if (joinedRooms.contains(roomId)) {
+                return
+            }
             joinedRooms.add(roomId)
         }
         val data = JSONObject()

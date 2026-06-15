@@ -190,11 +190,19 @@ fun MainLayout(viewModel: AppViewModel) {
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
                         .clickable {
-                            // Tap notification to seamlessly open that specific chat room!
-                            viewModel.navigateTo(Screen.MainDashboard)
-                            viewModel.selectTab(DashboardTab.Messaging)
-                            viewModel.selectRoom(notification.roomId)
-                            viewModel.dismissNotification()
+                            if (notification.roomId > 0) {
+                                // Tap notification to seamlessly open that specific chat room!
+                                viewModel.navigateTo(Screen.MainDashboard)
+                                viewModel.selectTab(DashboardTab.Messaging)
+                                viewModel.selectRoom(notification.roomId)
+                                viewModel.dismissNotification()
+                            } else {
+                                // Tap general notification to seamlessly route to the notifications alerts center
+                                viewModel.navigateTo(Screen.MainDashboard)
+                                viewModel.selectTab(DashboardTab.ProfileAndElections)
+                                viewModel.showNotificationsDialogFlow.tryEmit(true)
+                                viewModel.dismissNotification()
+                            }
                         },
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = VelvetCard.copy(alpha = 0.95f)),
@@ -1930,12 +1938,172 @@ fun MainDashboardView(viewModel: AppViewModel, snackbarHostState: SnackbarHostSt
 
                         Spacer(modifier = Modifier.width(2.dp))
 
-                        // Royal Welcome Trigger Bell
-                        IconButton(
-                            onClick = { viewModel.showWelcomeDialog() },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(Icons.Default.Notifications, contentDescription = "Alerts", tint = RegalGold, modifier = Modifier.size(18.dp))
+                        // Alerts Badge Bell with Notification Center Dialog
+                        val unreadCount by viewModel.unreadNotificationsCount.collectAsState()
+                        var showNotificationsDialog by remember { mutableStateOf(false) }
+
+                        LaunchedEffect(Unit) {
+                            viewModel.showNotificationsDialogFlow.collect { show ->
+                                if (show) {
+                                    viewModel.refreshNotifications()
+                                }
+                                showNotificationsDialog = show
+                            }
+                        }
+
+                        val activeNotifByScope by viewModel.activeNotification.collectAsState()
+                        LaunchedEffect(activeNotifByScope) {
+                            if (activeNotifByScope != null) {
+                                viewModel.refreshNotifications()
+                            }
+                        }
+
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            IconButton(
+                                onClick = { 
+                                    viewModel.refreshNotifications()
+                                    showNotificationsDialog = true 
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(Icons.Default.Notifications, contentDescription = "Alerts", tint = RegalGold, modifier = Modifier.size(18.dp))
+                            }
+                            if (unreadCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(top = 4.dp, end = 4.dp)
+                                        .size(14.dp)
+                                        .background(Color.Red, shape = CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = unreadCount.toString(),
+                                        color = Color.White,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        if (showNotificationsDialog) {
+                            val notifications by viewModel.allNotifications.collectAsState()
+
+                            AlertDialog(
+                                onDismissRequest = { showNotificationsDialog = false },
+                                containerColor = VelvetCard,
+                                titleContentColor = RegalGold,
+                                textContentColor = MutedSlate,
+                                title = {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Notification Center", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                        if (notifications.any { !it.isRead }) {
+                                            TextButton(
+                                                onClick = { viewModel.markAllNotificationsAsRead() }
+                                            ) {
+                                                Text("Mark All Read", color = LightGold, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+                                },
+                                text = {
+                                    if (notifications.isEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(150.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text("No notifications found", color = MutedSlate, fontSize = 14.sp)
+                                        }
+                                    } else {
+                                        LazyColumn(
+                                            modifier = Modifier.heightIn(max = 400.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            items(notifications) { notif ->
+                                                val icon = when (notif.type) {
+                                                    "message" -> Icons.Default.QuestionAnswer
+                                                    "comment" -> Icons.Default.Comment
+                                                    "reaction" -> Icons.Default.Stars
+                                                    "profile_view" -> Icons.Default.Visibility
+                                                    "friend_request" -> Icons.Default.Person
+                                                    else -> Icons.Default.Notifications
+                                                }
+                                                Card(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = if (notif.isRead) DeepOceanSapphire.copy(alpha = 0.5f) else VelvetCard
+                                                    ),
+                                                    border = BorderStroke(1.dp, if (notif.isRead) Color.Transparent else RegalGold.copy(alpha = 0.4f)),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    onClick = {
+                                                        if (!notif.isRead) {
+                                                            viewModel.markNotificationAsRead(notif.id)
+                                                        }
+                                                    }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(12.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(32.dp)
+                                                                .background(
+                                                                    if (notif.isRead) MutedSlate.copy(alpha = 0.1f) else RegalGold.copy(alpha = 0.15f),
+                                                                    shape = CircleShape
+                                                                ),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = icon,
+                                                                contentDescription = null,
+                                                                tint = if (notif.isRead) MutedSlate else RegalGold,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Text(
+                                                                text = notif.title,
+                                                                color = if (notif.isRead) MutedSlate else Color.White,
+                                                                fontSize = 13.sp,
+                                                                fontWeight = if (notif.isRead) FontWeight.Normal else FontWeight.Bold
+                                                            )
+                                                            if (notif.body.isNotBlank()) {
+                                                                Text(
+                                                                    text = notif.body,
+                                                                    color = MutedSlate,
+                                                                    fontSize = 11.sp,
+                                                                    maxLines = 2,
+                                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                                )
+                                                            }
+                                                        }
+                                                        if (!notif.isRead) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(8.dp)
+                                                                    .background(RegalGold, shape = CircleShape)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = { showNotificationsDialog = false }) {
+                                        Text("Close", color = RegalGold)
+                                    }
+                                }
+                            )
                         }
 
                         // Top Right 3-dot Dropdown Menu with Theme Toggle & Logout
@@ -2265,6 +2433,10 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
     var editTerritory by remember { mutableStateOf(user.territory) }
     var editFlagEmoji by remember { mutableStateOf(user.flagEmoji) }
     var postToDelete by remember { mutableStateOf<com.example.data.PostEntity?>(null) }
+
+    LaunchedEffect(user.id) {
+        viewModel.notifyProfileView(user)
+    }
 
     Dialog(
         onDismissRequest = onClose,
@@ -3684,19 +3856,21 @@ fun FindFriendsTab(viewModel: AppViewModel) {
                                     }
                                 }
 
-                                Button(
-                                    onClick = {
-                                        viewModel.notifyProfileView(friend)
-                                        viewModel.startChatWithUser(friend)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = RegalGold),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.height(32.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Icon(Icons.Default.Send, contentDescription = null, tint = CharcoalObsidian, modifier = Modifier.size(12.dp))
-                                        Text("Message", color = CharcoalObsidian, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = {
+                                            viewModel.notifyProfileView(friend)
+                                            viewModel.startChatWithUser(friend)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = RegalGold),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(32.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Icon(Icons.Default.Send, contentDescription = null, tint = CharcoalObsidian, modifier = Modifier.size(12.dp))
+                                            Text("Message", color = CharcoalObsidian, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -3924,6 +4098,22 @@ fun MessagingTab(viewModel: AppViewModel) {
     val messagesList by viewModel.currentChatMessages.collectAsState()
 
     var chatMessageText by remember { mutableStateOf("") }
+    val typingUsers by viewModel.typingUsers.collectAsState()
+
+    LaunchedEffect(chatMessageText) {
+        val roomId = selectedId
+        if (roomId != null) {
+            if (chatMessageText.isNotEmpty()) {
+                // Throttle typing updates with a 400ms debounce
+                delay(400)
+                viewModel.sendTyping(roomId)
+                delay(3000)
+                viewModel.sendStopTyping(roomId)
+            } else {
+                viewModel.sendStopTyping(roomId)
+            }
+        }
+    }
     var roomToDelete by remember { mutableStateOf<ChatRoomEntity?>(null) }
 
     if (roomToDelete != null) {
@@ -4327,8 +4517,94 @@ fun MessagingTab(viewModel: AppViewModel) {
             }
 
             val listState = rememberLazyListState()
-            LaunchedEffect(messagesList.size) {
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            val isKeyboardOpen = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+
+            var lastLoadedTopId by remember { mutableStateOf<Int?>(null) }
+            val currentMessagesState by androidx.compose.runtime.rememberUpdatedState(messagesList)
+            var isLoadingOlder by remember { mutableStateOf(false) }
+            var hasMoreMessages by remember { mutableStateOf(true) }
+
+            // Whenever the room changes, reset pagination state
+            LaunchedEffect(selectedId) {
+                hasMoreMessages = true
+                isLoadingOlder = false
+                lastLoadedTopId = null
+            }
+
+            // Infinite scrolling pagination: load older messages when user scrolls to top
+            LaunchedEffect(listState.firstVisibleItemIndex) {
+                if (listState.firstVisibleItemIndex == 0 && currentMessagesState.isNotEmpty() && !isLoadingOlder && hasMoreMessages) {
+                    val topMsg = currentMessagesState.firstOrNull()
+                    if (topMsg != null && topMsg.id != lastLoadedTopId) {
+                        val countAtTrigger = currentMessagesState.size
+                        if (countAtTrigger >= 30) {
+                            lastLoadedTopId = topMsg.id
+                            isLoadingOlder = true
+                            
+                            val visibleIndex = listState.firstVisibleItemIndex
+                            val visibleOffset = listState.firstVisibleItemScrollOffset
+                            val anchorItem = currentMessagesState.getOrNull(visibleIndex)
+
+                            viewModel.loadMoreMessages()
+                            // Delay to allow Database/Room to emit new messages
+                            kotlinx.coroutines.delay(1000)
+                            isLoadingOlder = false
+
+                            if (currentMessagesState.size <= countAtTrigger) {
+                                hasMoreMessages = false
+                            } else if (anchorItem != null) {
+                                val newIndex = currentMessagesState.indexOfFirst { it.id == anchorItem.id }
+                                if (newIndex != -1) {
+                                    listState.scrollToItem(newIndex, visibleOffset)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            var lastRoomId by remember { mutableStateOf<Int?>(null) }
+            var lastCount by remember { mutableStateOf(0) }
+
+            LaunchedEffect(selectedId) {
+                if (selectedId != lastRoomId) {
+                    lastRoomId = selectedId
+                    lastCount = 0
+                }
+            }
+
+            // Auto-scrolling on new message insertion or room open, matching WhatsApp
+            LaunchedEffect(messagesList) {
                 if (messagesList.isNotEmpty()) {
+                    val lastMsg = messagesList.lastOrNull()
+                    if (lastMsg != null) {
+                        val isMe = lastMsg.senderId == "me"
+                        val sizeIncreased = messagesList.size > lastCount && lastCount > 0
+                        val isRoomOpening = lastCount == 0
+
+                        val isNearBottom = if (messagesList.size > 1) {
+                            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+                            lastVisible != null && lastVisible.index >= messagesList.size - 4
+                        } else true
+
+                        if (isRoomOpening) {
+                            listState.scrollToItem(messagesList.size - 1)
+                        } else if (sizeIncreased) {
+                            if (isMe || isNearBottom) {
+                                listState.animateScrollToItem(messagesList.size - 1)
+                            }
+                        }
+                    }
+                    lastCount = messagesList.size
+                } else {
+                    lastCount = 0
+                }
+            }
+
+            // Smoothly scroll to bottom when keyboard opens to prevent clipping
+            LaunchedEffect(isKeyboardOpen) {
+                if (isKeyboardOpen && messagesList.isNotEmpty()) {
                     listState.animateScrollToItem(messagesList.size - 1)
                 }
             }
@@ -4343,7 +4619,10 @@ fun MessagingTab(viewModel: AppViewModel) {
                 verticalArrangement = Arrangement.spacedBy(0.dp),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)
             ) {
-                itemsIndexed(messagesList) { index, message ->
+                itemsIndexed(
+                    items = messagesList,
+                    key = { _, message -> message.id }
+                ) { index, message ->
                     val isMe = message.senderId == "me"
                     val prevMessage = if (index > 0) messagesList[index - 1] else null
                     val isConsecutive = prevMessage != null && prevMessage.senderId == message.senderId
@@ -4424,6 +4703,18 @@ fun MessagingTab(viewModel: AppViewModel) {
 
             // Lock typing unless the connection is fully active
             val isConnectionActive = activeRoom?.isActive == true
+            
+            // Typing indicator
+            val typingUser = typingUsers[selectedId]
+            if (typingUser != null) {
+                Text(
+                    text = "$typingUser is typing...",
+                    color = RegalGold,
+                    fontSize = 11.sp,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                    modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)
+                )
+            }
 
             // Keyboard bottom write tray
             Row(
@@ -4434,29 +4725,38 @@ fun MessagingTab(viewModel: AppViewModel) {
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
+                TextField(
                     value = if (isConnectionActive) chatMessageText else "",
                     onValueChange = { if (isConnectionActive) chatMessageText = it },
                     placeholder = { 
                         Text(
-                            text = if (isConnectionActive) "message" 
+                            text = if (isConnectionActive) "Message..." 
                             else "Archived slot: Swap from queue to activate & send",
-                            fontSize = 12.sp
+                            fontSize = 13.sp,
+                            color = MutedSlate
                         ) 
                     },
                     enabled = isConnectionActive,
-                    colors = OutlinedTextFieldDefaults.colors(
+                    colors = TextFieldDefaults.colors(
                         focusedTextColor = GhostWhite,
                         unfocusedTextColor = GhostWhite,
-                        focusedBorderColor = RegalGold,
-                        unfocusedBorderColor = MutedSlate,
-                        disabledTextColor = MutedSlate,
-                        disabledPlaceholderColor = MutedSlate.copy(alpha = 0.6f)
+                        focusedContainerColor = CharcoalObsidian,
+                        unfocusedContainerColor = CharcoalObsidian,
+                        disabledContainerColor = CharcoalObsidian.copy(alpha = 0.5f),
+                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = GhostWhite,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    maxLines = 4,
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(max = 44.dp)
+                        .border(1.dp, if (chatMessageText.isNotEmpty()) RegalGold else MutedSlate.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
                 )
 
                 Spacer(modifier = Modifier.width(8.dp))

@@ -3,6 +3,53 @@ import { getFirestoreDb } from '../config/database';
 import { IChatRoom } from '../models/ChatRoom';
 import { IChatMessage } from '../models/ChatMessage';
 import { getNextSequenceValue } from '../models/Counter';
+import { createNotificationDirectly } from './notificationController';
+
+export const resolveRecipientId = async (db: any, roomId: number, senderName: string): Promise<string | null> => {
+  try {
+    const roomSnapshot = await db.collection('chatRooms').doc(String(roomId)).get();
+    let participantNameStr = "";
+    if (roomSnapshot.exists) {
+      participantNameStr = roomSnapshot.data()?.participantName || "";
+    } else {
+      const query = await db.collection('chatRooms').where('id', '==', Number(roomId)).get();
+      if (!query.empty) {
+        participantNameStr = query.docs[0].data()?.participantName || "";
+      }
+    }
+
+    if (!participantNameStr) return null;
+
+    const cleanNameForCompare = (nameStr: string): string => {
+      return nameStr
+        .replace(/[^\x00-\x7F]/g, "") // strip emojis and non-ascii flag characters
+        .split(" @")[0]
+        .replace(/\[.*\]/g, "")
+        .toLowerCase()
+        .trim();
+    };
+
+    const parts = participantNameStr.split("|").map((p: string) => p.trim());
+    if (parts.length >= 2) {
+      const firstPartClean = parts[0];
+      const secondPartClean = parts[1];
+      const partnerName = cleanNameForCompare(firstPartClean) === cleanNameForCompare(senderName) ? secondPartClean : firstPartClean;
+      
+      const userQuery = await db.collection('users').get();
+      const matchingUserDoc = userQuery.docs.find((doc: any) => {
+        const u = doc.data();
+        return u.name && cleanNameForCompare(u.name) === cleanNameForCompare(partnerName);
+      });
+
+      if (matchingUserDoc) {
+        return matchingUserDoc.data().email || matchingUserDoc.id;
+      }
+    }
+  } catch (err) {
+    console.error("resolveRecipientId error:", err);
+  }
+  return null;
+};
 
 export const getRooms = async (req: Request, res: Response) => {
   try {
@@ -94,6 +141,19 @@ export const getMessages = async (req: Request, res: Response) => {
   }
 };
 
+export const getReceipts = async (req: Request, res: Response) => {
+  try {
+    const { roomId } = req.params;
+    const db = getFirestoreDb();
+    const snapshot = await db.collection('chatReceipts').where('roomId', '==', Number(roomId)).get();
+    const receipts = snapshot.docs.map(doc => doc.data());
+    res.status(200).json(receipts);
+  } catch (error: any) {
+    console.error("Firestore getReceipts Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const sendMessage = async (req: Request, res: Response) => {
   try {
     const { roomId } = req.params;
@@ -111,6 +171,22 @@ export const sendMessage = async (req: Request, res: Response) => {
     };
 
     await db.collection('chatMessages').doc(String(nextId)).set(newMessage);
+
+    // Trigger message notification
+    try {
+      const recipientId = await resolveRecipientId(db, Number(roomId), newMessage.senderName);
+      if (recipientId) {
+        await createNotificationDirectly(
+          recipientId,
+          newMessage.senderId,
+          "message",
+          `New message from ${newMessage.senderName}`,
+          newMessage.messageText
+        );
+      }
+    } catch (notifErr) {
+      console.error("Message REST notification failure:", notifErr);
+    }
 
     // Update parent ChatRoom's preview metadata as well
     const roomRef = db.collection('chatRooms').doc(String(roomId));
@@ -226,6 +302,16 @@ export const deleteRoom = async (req: Request, res: Response) => {
     const messagesQuery = await db.collection('chatMessages').where('roomId', '==', Number(roomId)).get();
     for (const doc of messagesQuery.docs) {
       await doc.ref.delete();
+    }
+
+    // Delete matching receipts too in chatReceipts
+    try {
+      const receiptsQuery = await db.collection('chatReceipts').where('roomId', '==', Number(roomId)).get();
+      for (const doc of receiptsQuery.docs) {
+        await doc.ref.delete();
+      }
+    } catch (err) {
+      console.error("Error deleting matching receipts:", err);
     }
 
     // 2. Delete the room document

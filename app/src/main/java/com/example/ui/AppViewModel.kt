@@ -8,6 +8,8 @@ import com.example.data.*
 import com.example.ui.theme.AppThemeMode
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 
 // Screen Navigation Enum
 enum class Screen {
@@ -37,7 +39,7 @@ data class InAppNotification(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-class AppViewModel(application: Application) : AndroidViewModel(application) {
+class AppViewModel(application: Application) : AndroidViewModel(application), SocketManager.SocketEventListener {
 
     private val db = AppDatabase.getDatabase(application)
     private val userDao = db.userDao()
@@ -47,6 +49,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val visitorDao = db.visitorDao()
     private val missionDao = db.missionDao()
     private val legendsDao = db.legendsDao()
+    private val notificationDao = db.notificationDao()
 
     private val appStartedTime = System.currentTimeMillis()
     private val shownNotificationKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -99,6 +102,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val profileVisitors: StateFlow<List<ProfileVisitorEntity>> = visitorDao.getVisitorsFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Notifications state flows
+    val allNotifications: StateFlow<List<NotificationEntity>> = notificationDao.getNotificationsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val unreadNotificationsCount: StateFlow<Int> = notificationDao.getNotificationsFlow()
+        .map { list -> list.count { !it.isRead } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     // Candidates Flow
     val electionCandidates: StateFlow<List<UserEntity>> = userDao.getCandidatesFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -110,17 +121,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // All registered users except "me" for Find Friends
     val allFriends: StateFlow<List<UserEntity>> = userDao.getAllFriendsFlow()
         .combine(currentUserFlow) { friends, me ->
-            if (me == null) {
-                friends
-            } else {
-                val myEmail = me.email.lowercase().trim()
-                val myUsername = me.username.lowercase().trim().removePrefix("@")
-                friends.filter { friend ->
-                    val friendEmail = friend.email.lowercase().trim()
-                    val friendUsername = friend.username.lowercase().trim().removePrefix("@")
-                    friendEmail != myEmail && friendUsername != myUsername
+            android.util.Log.d("FindFriendsDiagnostic", "--- START FIND FRIENDS FILTERING ---")
+            android.util.Log.d("FindFriendsDiagnostic", "Total users in Room before filtering: ${friends.size}")
+
+            val myEmail = me?.email?.lowercase()?.trim() ?: ""
+            val myUsername = me?.username?.lowercase()?.trim()?.removePrefix("@") ?: ""
+
+            val filtered = mutableListOf<UserEntity>()
+
+            for (friend in friends) {
+                val friendId = friend.id
+                val friendName = friend.name
+                val friendEmail = friend.email.lowercase().trim()
+                val friendUsername = friend.username.lowercase().trim().removePrefix("@")
+
+                var removeReason: String? = null
+
+                if (friendId == "me") {
+                    removeReason = "Session record (current user ID 'me')"
+                } else if (friendName.isBlank() || friendUsername.isBlank() || friendEmail.isBlank()) {
+                    removeReason = "Malformed document (missing essential field)"
+                } else if (myEmail.isNotBlank() && friendEmail == myEmail) {
+                    removeReason = "Duplicate session record (matches active citizen email '$myEmail')"
+                } else if (myUsername.isNotBlank() && friendUsername == myUsername) {
+                    removeReason = "Duplicate session record (matches active citizen username '$myUsername')"
+                } else if (friendId in listOf("gandhi_avatar", "clara_nobel", "kenya_leader", "test@oneearth.io") || friendEmail.endsWith("@oneearth.io")) {
+                    removeReason = "Placeholder/demo user / administrative seed figure"
+                }
+
+                if (removeReason != null) {
+                    android.util.Log.d(
+                        "FindFriendsDiagnostic",
+                        "Removed - User ID: $friendId | User Name: $friendName | Reason: $removeReason"
+                    )
+                } else {
+                    filtered.add(friend)
+                    android.util.Log.d(
+                        "FindFriendsDiagnostic",
+                        "Retained - User ID: $friendId | User Name: $friendName"
+                    )
                 }
             }
+
+            android.util.Log.d("FindFriendsDiagnostic", "Total users after filtering: ${filtered.size}")
+            android.util.Log.d("FindFriendsDiagnostic", "--- END FIND FRIENDS FILTERING ---")
+            filtered
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -140,54 +185,104 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedRoomId = MutableStateFlow<Int?>(null)
     val selectedRoomId: StateFlow<Int?> = _selectedRoomId.asStateFlow()
 
+    private val _typingUsers = MutableStateFlow<Map<Int, String?>>(emptyMap())
+    val typingUsers: StateFlow<Map<Int, String?>> = _typingUsers.asStateFlow()
+
+    private var notificationJob: Job? = null
+
     private val _activeNotification = MutableStateFlow<InAppNotification?>(null)
     val activeNotification: StateFlow<InAppNotification?> = _activeNotification.asStateFlow()
 
+    val showNotificationsDialogFlow = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+
+    fun showInAppNotification(roomId: Int, senderName: String, messageText: String) {
+        notificationJob?.cancel()
+        _activeNotification.value = InAppNotification(
+            roomId = roomId,
+            senderName = senderName,
+            messageText = messageText
+        )
+        notificationJob = viewModelScope.launch {
+            delay(4000) // Instagram style (4 seconds duration)
+            _activeNotification.value = null
+        }
+    }
+
     fun dismissNotification() {
+        notificationJob?.cancel()
         _activeNotification.value = null
     }
 
-    val currentChatMessages: StateFlow<List<ChatMessageEntity>> = _selectedRoomId
-        .flatMapLatest { id ->
+    private val _chatLimit = MutableStateFlow(40)
+
+    fun loadMoreMessages() {
+        android.util.Log.d("AppViewModel", "loadMoreMessages is called, increasing chat limit...")
+        _chatLimit.value += 30
+    }
+
+    val currentChatMessages: StateFlow<List<ChatMessageEntity>> = combine(_selectedRoomId, _chatLimit) { id, limit ->
+        Pair(id, limit)
+    }
+        .flatMapLatest { (id, limit) ->
             if (id != null) {
-                chatDao.getMessagesForRoomFlow(id)
+                combine(
+                    chatDao.getLatestMessagesFlow(id, limit),
+                    chatDao.getReceiptsForRoomFlow(id),
+                    currentUserFlow
+                ) { messages, receipts, user ->
+                    val myName = user?.name ?: "Me"
+                    val partnerReadReceipts = receipts.filter { it.type == "read" && !it.senderName.equals(myName, ignoreCase = true) && !it.senderName.equals("Me", ignoreCase = true) }
+                    val partnerDeliveredReceipts = receipts.filter { it.type == "delivered" && !it.senderName.equals(myName, ignoreCase = true) && !it.senderName.equals("Me", ignoreCase = true) }
+                    val maxPartnerReadTime = partnerReadReceipts.maxOfOrNull { it.timestamp } ?: 0L
+                    val maxPartnerDeliveredTime = partnerDeliveredReceipts.maxOfOrNull { it.timestamp } ?: 0L
+                    
+                    val filteredMessages = messages.filter { !it.senderId.startsWith("read_receipt") && !it.senderId.startsWith("delivered_receipt") }
+                    
+                    val normalizedMessages = filteredMessages.map { msg ->
+                        val isMe = msg.senderName.equals(myName, ignoreCase = true) || 
+                                   msg.senderName.equals("Me", ignoreCase = true) ||
+                                   msg.senderId == "me" ||
+                                   msg.senderId.equals("me", ignoreCase = true) ||
+                                   (user != null && msg.senderId.equals(user.email, ignoreCase = true))
+                        val mappedSenderId = if (isMe) "me" else "other"
+                        val mappedSenderName = if (isMe) "Me" else msg.senderName
+                        val evaluatedStatus = if (isMe) {
+                            when {
+                                msg.timestamp <= maxPartnerReadTime -> "Read"
+                                msg.timestamp <= maxPartnerDeliveredTime -> "Delivered"
+                                else -> "Sent"
+                            }
+                        } else {
+                            "Read"
+                        }
+                        msg.copy(
+                            senderId = mappedSenderId,
+                            senderName = mappedSenderName,
+                            status = evaluatedStatus
+                        )
+                    }
+
+                    val deduplicatedList = mutableListOf<ChatMessageEntity>()
+                    normalizedMessages.sortedBy { it.timestamp }.forEach { msg ->
+                        val duplicateIndex = deduplicatedList.indexOfFirst { existing ->
+                            existing.senderId == msg.senderId &&
+                            existing.messageText.trim().equals(msg.messageText.trim(), ignoreCase = true) &&
+                            kotlin.math.abs(existing.timestamp - msg.timestamp) < 15000
+                        }
+                        if (duplicateIndex != -1) {
+                            val existing = deduplicatedList[duplicateIndex]
+                            if (msg.id > existing.id) {
+                                deduplicatedList[duplicateIndex] = msg
+                            }
+                        } else {
+                            deduplicatedList.add(msg)
+                        }
+                    }
+                    deduplicatedList
+                }
             } else {
                 flowOf(emptyList())
             }
-        }
-        .combine(currentUserFlow) { list, user ->
-            val myName = user?.name ?: "Me"
-            val readReceipts = list.filter { it.senderId == "read_receipt" }
-            val deliveredReceipts = list.filter { it.senderId == "delivered_receipt" }
-            val partnerReadReceipts = readReceipts.filter { !it.senderName.equals(myName, ignoreCase = true) && !it.senderName.equals("Me", ignoreCase = true) }
-            val partnerDeliveredReceipts = deliveredReceipts.filter { !it.senderName.equals(myName, ignoreCase = true) && !it.senderName.equals("Me", ignoreCase = true) }
-            val maxPartnerReadTime = partnerReadReceipts.maxOfOrNull { it.timestamp } ?: 0L
-            val maxPartnerDeliveredTime = partnerDeliveredReceipts.maxOfOrNull { it.timestamp } ?: 0L
-            list.filter { !it.senderId.startsWith("read_receipt") && !it.senderId.startsWith("delivered_receipt") }
-                .distinctBy { it.id }
-                .distinctBy { it.senderId + "_" + it.messageText.trim() + "_" + (it.timestamp / 3000) }
-                .map { msg ->
-                    val isMe = msg.senderName.equals(myName, ignoreCase = true) || 
-                               msg.senderName.equals("Me", ignoreCase = true) ||
-                               msg.senderId == "me" ||
-                               (user != null && msg.senderId.equals(user.email, ignoreCase = true))
-                    val mappedSenderId = if (isMe) "me" else "other"
-                    val mappedSenderName = if (isMe) "Me" else msg.senderName
-                    val evaluatedStatus = if (isMe) {
-                        when {
-                            msg.timestamp <= maxPartnerReadTime -> "Read"
-                            msg.timestamp <= maxPartnerDeliveredTime -> "Delivered"
-                            else -> "Sent"
-                        }
-                    } else {
-                        "Read"
-                    }
-                    msg.copy(
-                        senderId = mappedSenderId,
-                        senderName = mappedSenderName,
-                        status = evaluatedStatus
-                    )
-                }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -211,6 +306,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAppInForeground(inForeground: Boolean) {
         _isAppInForeground.value = inForeground
+        if (inForeground) {
+            SocketManager.connect(ApiClient.getBaseUrl())
+        } else {
+            SocketManager.disconnect()
+        }
     }
 
     // Theme toggle state
@@ -282,6 +382,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         ApiClient.updateBaseUrl(cleanUrl)
         _backendBaseUrl.value = ApiClient.getBaseUrl()
         sharedPrefs.edit().putString("backend_url", ApiClient.getBaseUrl()).apply()
+        
+        // Update Socket.IO connection
+        SocketManager.connect(ApiClient.getBaseUrl())
+
         viewModelScope.launch {
             _isConnectingToBackend.value = true
             _toastMessage.emit("Connecting to Cosmos Network at: ${ApiClient.getBaseUrl()}...")
@@ -351,15 +455,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _backendBaseUrl.value = ApiClient.getBaseUrl()
             sharedPrefs.edit().putString("backend_url", ApiClient.getBaseUrl()).apply()
         } else {
-            ApiClient.updateBaseUrl("https://one-earth-dadyagc7bcc9hpcb.eastasia-01.azurewebsites.net/")
+            ApiClient.updateBaseUrl("https://boolean-lexmark-terrorism-yellow.trycloudflare.com/")
             _backendBaseUrl.value = ApiClient.getBaseUrl()
         }
         // Prepopulate database with rich data for demonstration
         prepopulateDb()
         // Start backend connection monitoring
         startBackendHealthChecking()
-        // Start real-time chat messages polling
-        startRealtimeChatPolling()
+        // Initialize Socket.IO connection
+        setupSocketManager()
         // Check if user is already logged in
         checkAutoLogin()
     }
@@ -389,7 +493,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun performLogout() {
         viewModelScope.launch {
             _selectedRoomId.value = null
-            _activeNotification.value = null
+            dismissNotification()
             ApiClient.authToken = null
             userDao.deleteUserById("me")
             _currentScreen.value = Screen.Splash
@@ -409,12 +513,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startBackendHealthChecking() {
         viewModelScope.launch {
+            var failedCount = 0
             while (true) {
                 if (_isAppInForeground.value) {
                     try {
                         val response = ApiClient.getService().checkHealth()
                         val wasConnected = _isBackendConnected.value
                         _isBackendConnected.value = (response.status == "ok" || response.status.isNotBlank())
+                        failedCount = 0
                         if (!wasConnected && _isBackendConnected.value) {
                             _toastMessage.emit("Connected to One Earth Network Backend!")
                             syncAllWithBackend()
@@ -424,6 +530,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     } catch (e: Exception) {
                         _isBackendConnected.value = false
+                        failedCount++
+                        val currentUrl = ApiClient.getBaseUrl()
+                        if (failedCount >= 2 && !currentUrl.contains("10.0.2.2") && !currentUrl.contains("localhost")) {
+                            android.util.Log.d("AppViewModel", "Cloud tunnel unresponsive. Attempting local emulator fallback...")
+                            ApiClient.updateBaseUrl("http://10.0.2.2:4000/")
+                            _backendBaseUrl.value = ApiClient.getBaseUrl()
+                            failedCount = 0
+                        } else if (failedCount >= 2 && (currentUrl.contains("10.0.2.2") || currentUrl.contains("localhost"))) {
+                            android.util.Log.d("AppViewModel", "Local loopback unresponsive. Reverting to cloud tunnel...")
+                            ApiClient.updateBaseUrl("https://boolean-lexmark-terrorism-yellow.trycloudflare.com/")
+                            _backendBaseUrl.value = ApiClient.getBaseUrl()
+                            failedCount = 0
+                        }
                     }
                 }
                 kotlinx.coroutines.delay(8000) // check every 8 seconds
@@ -437,111 +556,195 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                _selectedRoomId.value == roomId
     }
 
-    private fun startRealtimeChatPolling() {
+    private fun setupSocketManager() {
+        SocketManager.setListener(this)
+        SocketManager.connect(ApiClient.getBaseUrl())
+        
         viewModelScope.launch {
-            var allRoomsPollTick = 0
-            while (true) {
-                if (_isAppInForeground.value) {
-                    try {
-                        val roomId = _selectedRoomId.value
-                        val user = userDao.getUserById("me")
-                        if (user == null) {
-                            _activeNotification.value = null
-                            kotlinx.coroutines.delay(1500)
-                            continue
-                        }
-                        val myName = user.name ?: "Me"
-                        
-                        // 1. Poll currently open/active chat room for immediate responsiveness (every 1.5s)
-                        if (roomId != null && _isBackendConnected.value) {
-                            val remoteMessages = ApiClient.getService().getChatMessages(roomId)
-                            var latestIncomingTime = 0L
-                            remoteMessages.forEach { msg ->
-                                val localMatch = chatDao.getMessageByRoomSenderAndText(msg.roomId, msg.senderId, msg.messageText)
-                                val alreadyExists = localMatch != null
-                                if (localMatch != null && localMatch.id != msg.id) {
-                                    chatDao.deleteMessage(localMatch)
-                                }
-                                chatDao.insertMessage(msg)
-                                
-                                // Check if it's an incoming message from the other participant
-                                if (!msg.senderName.equals(myName, ignoreCase = true) && 
-                                    !msg.senderName.equals("Me", ignoreCase = true) &&
-                                    !msg.senderId.startsWith("read_receipt") && 
-                                    !msg.senderId.startsWith("delivered_receipt")) {
-                                    
-                                    // Direct delivery receipt triggered as it has reached the client
-                                    triggerDeliveryReceipt(roomId, msg.timestamp)
-                                    
-                                    if (!alreadyExists && !isChatRoomOpen(roomId) && msg.timestamp >= appStartedTime - 5000) {
-                                        val notifKey = "${roomId}_${msg.timestamp}"
-                                        if (!shownNotificationKeys.contains(notifKey)) {
-                                            shownNotificationKeys.add(notifKey)
-                                            _activeNotification.value = InAppNotification(
-                                                roomId = roomId,
-                                                senderName = msg.senderName,
-                                                messageText = msg.messageText
-                                            )
-                                        }
-                                    }
-                                    
-                                    if (msg.timestamp > latestIncomingTime) {
-                                        latestIncomingTime = msg.timestamp
-                                    }
-                                }
-                            }
-                            if (latestIncomingTime > 0) {
-                                triggerReadReceipt(roomId, latestIncomingTime)
-                            }
-                        }
-                        
-                        // 2. Poll other background active rooms to trigger Delivery status in the background (every ~4.5s)
-                        allRoomsPollTick++
-                        if (allRoomsPollTick >= 3 && _isBackendConnected.value) {
-                            allRoomsPollTick = 0
-                            // Safely collect active rooms
-                            val activeRooms = chatDao.getActiveRoomsFlow().first()
-                            activeRooms.forEach { activeRoom ->
-                                if (activeRoom.id != roomId) {
-                                    val remoteMsgs = ApiClient.getService().getChatMessages(activeRoom.id)
-                                    remoteMsgs.forEach { msg ->
-                                        val localMatch = chatDao.getMessageByRoomSenderAndText(msg.roomId, msg.senderId, msg.messageText)
-                                        val alreadyExists = localMatch != null
-                                        if (localMatch != null && localMatch.id != msg.id) {
-                                            chatDao.deleteMessage(localMatch)
-                                        }
-                                        chatDao.insertMessage(msg)
-                                        
-                                        // Trigger Delivery receipt instantly
-                                        if (!msg.senderName.equals(myName, ignoreCase = true) && 
-                                            !msg.senderName.equals("Me", ignoreCase = true) &&
-                                            !msg.senderId.startsWith("read_receipt") && 
-                                            !msg.senderId.startsWith("delivered_receipt")) {
-                                            
-                                            triggerDeliveryReceipt(activeRoom.id, msg.timestamp)
-          
-                                             if (!alreadyExists && !isChatRoomOpen(activeRoom.id) && msg.timestamp >= appStartedTime - 5000) {
-                                                 val notifKey = "${activeRoom.id}_${msg.timestamp}"
-                                                 if (!shownNotificationKeys.contains(notifKey)) {
-                                                     shownNotificationKeys.add(notifKey)
-                                                     _activeNotification.value = InAppNotification(
-                                                         roomId = activeRoom.id,
-                                                         senderName = msg.senderName,
-                                                         messageText = msg.messageText
-                                                     )
-                                                 }
-                                             }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // Fail-safe
+            currentUserFlow.collect { user ->
+                if (user != null && user.email.isNotBlank()) {
+                    android.util.Log.d("AppViewModel", "Current user loaded/changed, joining personal channel: ${user.email}")
+                    SocketManager.joinUser(user.email)
+                }
+            }
+        }
+        
+        viewModelScope.launch {
+            activeChatRooms.collect { rooms ->
+                android.util.Log.d("AppViewModel", "Active chat rooms collected, joining on Socket: ${rooms.map { it.id }}")
+                rooms.forEach { room ->
+                    SocketManager.joinRoom(room.id)
+                }
+            }
+        }
+    }
+
+    override fun onNewMessage(message: ChatMessageEntity) {
+        viewModelScope.launch {
+            val user = userDao.getUserById("me")
+            val myName = user?.name ?: "Me"
+            
+            chatDao.insertMessage(message)
+
+            // Check if it's an incoming message from the other participant
+            if (!message.senderName.equals(myName, ignoreCase = true) && 
+                !message.senderName.equals("Me", ignoreCase = true) &&
+                !message.senderId.startsWith("read_receipt") && 
+                !message.senderId.startsWith("delivered_receipt")) {
+                
+                // Direct delivery receipt triggered as it has reached the client
+                triggerDeliveryReceipt(message.roomId, message.timestamp)
+                
+                if (!isChatRoomOpen(message.roomId) && message.timestamp >= appStartedTime - 5000) {
+                    val notifKey = "${message.roomId}_${message.timestamp}"
+                    if (!shownNotificationKeys.contains(notifKey)) {
+                        shownNotificationKeys.add(notifKey)
+                        showInAppNotification(
+                            roomId = message.roomId,
+                            senderName = message.senderName,
+                            messageText = message.messageText
+                        )
                     }
                 }
-                kotlinx.coroutines.delay(1500) // Poll every 1.5 seconds for real-time responsiveness
+                
+                if (isChatRoomOpen(message.roomId)) {
+                    triggerReadReceipt(message.roomId, message.timestamp)
+                }
             }
+            
+            val room = chatDao.getRoomById(message.roomId)
+            if (room != null) {
+                chatDao.updateRoom(room.copy(
+                    lastMessage = message.messageText,
+                    lastMessageTime = message.timestamp
+                ))
+            }
+        }
+    }
+
+    override fun onMessageDelivered(roomId: Int, timestamp: Long, senderName: String) {
+        viewModelScope.launch {
+            val receipt = ChatReceiptEntity(
+                id = "${roomId}_${senderName}_delivered",
+                roomId = roomId,
+                senderName = senderName,
+                type = "delivered",
+                timestamp = timestamp
+            )
+            chatDao.insertReceipt(receipt)
+        }
+    }
+
+    override fun onMessageRead(roomId: Int, timestamp: Long, senderName: String) {
+        viewModelScope.launch {
+            val receipt = ChatReceiptEntity(
+                id = "${roomId}_${senderName}_read",
+                roomId = roomId,
+                senderName = senderName,
+                type = "read",
+                timestamp = timestamp
+            )
+            chatDao.insertReceipt(receipt)
+        }
+    }
+
+    override fun onTyping(roomId: Int, senderName: String) {
+        val current = _typingUsers.value.toMutableMap()
+        current[roomId] = senderName
+        _typingUsers.value = current
+    }
+
+    override fun onStopTyping(roomId: Int, senderName: String) {
+        val current = _typingUsers.value.toMutableMap()
+        if (current[roomId] == senderName) {
+            current.remove(roomId)
+        }
+        _typingUsers.value = current
+    }
+
+    override fun onConnect() {
+        _isBackendConnected.value = true
+        viewModelScope.launch {
+            val me = userDao.getUserById("me")
+            if (me != null && me.email.isNotBlank()) {
+                SocketManager.joinUser(me.email)
+            }
+            chatDao.getActiveRoomsFlow().first().forEach { room ->
+                SocketManager.joinRoom(room.id)
+            }
+            chatDao.getWaitingRoomsFlow().first().forEach { room ->
+                SocketManager.joinRoom(room.id)
+            }
+            _selectedRoomId.value?.let { roomId ->
+                SocketManager.joinRoom(roomId)
+                markRoomAsRead(roomId)
+            }
+        }
+    }
+
+    override fun onDisconnect() {
+        // _isBackendConnected.value = false // Keep true if REST is still working? 
+        // Instructions say "backend health checking" handles _isBackendConnected for REST.
+    }
+
+    override fun onNewNotification(notification: NotificationDTO) {
+        viewModelScope.launch {
+            val entity = NotificationEntity(
+                id = notification.id,
+                recipientId = notification.recipientId,
+                senderId = notification.senderId,
+                type = notification.type,
+                title = notification.title,
+                body = notification.body,
+                isRead = notification.isRead,
+                createdAt = notification.createdAt
+            )
+            notificationDao.insertNotification(entity)
+
+            if (notification.type == "profile_view") {
+                val visitorName = notification.body.substringBefore(" viewed your profile").trim()
+                if (visitorName.isNotBlank() && visitorName != "Someone" && visitorName != notification.body) {
+                    val existing = visitorDao.getVisitorRecord("me", visitorName)
+                    val visitor = if (existing != null) {
+                        existing.copy(timestamp = notification.createdAt)
+                    } else {
+                        ProfileVisitorEntity(
+                            hostUserId = "me",
+                            visitorName = visitorName,
+                            visitorTerritory = "Global",
+                            visitorFlag = "🌍",
+                            visitorRank = "Citizen",
+                            timestamp = notification.createdAt
+                        )
+                    }
+                    visitorDao.insertVisitor(visitor)
+                }
+            }
+
+            // Trigger Instagram-style real-time dropdown in-app popup banner for general notifications
+            showInAppNotification(
+                roomId = -1, // Use -1 to represent non-chat alerts
+                senderName = notification.title,
+                messageText = notification.body
+            )
+
+            _toastMessage.emit("🔔 ${notification.body}")
+        }
+    }
+
+    fun sendTyping(roomId: Int) {
+        viewModelScope.launch {
+            val user = userDao.getUserById("me")
+            val myName = user?.name ?: "Me"
+            SocketManager.sendTyping(roomId, myName)
+        }
+    }
+
+    fun sendStopTyping(roomId: Int) {
+        viewModelScope.launch {
+            val user = userDao.getUserById("me")
+            val myName = user?.name ?: "Me"
+            SocketManager.sendStopTyping(roomId, myName)
         }
     }
 
@@ -620,6 +823,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 } catch (userEx: Exception) {
                     android.util.Log.e("AppViewModel", "Sync Users Error: ${userEx.message}", userEx)
                 }
+
+                // 4. Sync Notifications from Backend
+                try {
+                    val remoteNotifs = ApiClient.getService().getNotifications()
+                    notificationDao.deleteAllNotifications()
+                    if (remoteNotifs.isNotEmpty()) {
+                        val mapped = remoteNotifs.map { dto ->
+                            if (dto.type == "profile_view") {
+                                val visitorName = dto.body.substringBefore(" viewed your profile").trim()
+                                if (visitorName.isNotBlank() && visitorName != "Someone" && visitorName != dto.body) {
+                                    val existing = visitorDao.getVisitorRecord("me", visitorName)
+                                    val visitor = if (existing != null) {
+                                        existing.copy(timestamp = dto.createdAt)
+                                    } else {
+                                        ProfileVisitorEntity(
+                                            hostUserId = "me",
+                                            visitorName = visitorName,
+                                            visitorTerritory = "Global",
+                                            visitorFlag = "🌍",
+                                            visitorRank = "Citizen",
+                                            timestamp = dto.createdAt
+                                        )
+                                    }
+                                    visitorDao.insertVisitor(visitor)
+                                }
+                            }
+                            NotificationEntity(
+                                id = dto.id,
+                                recipientId = dto.recipientId,
+                                senderId = dto.senderId,
+                                type = dto.type,
+                                title = dto.title,
+                                body = dto.body,
+                                isRead = dto.isRead,
+                                createdAt = dto.createdAt
+                            )
+                        }
+                        notificationDao.insertNotifications(mapped)
+                    }
+                } catch (notifEx: Exception) {
+                    android.util.Log.e("AppViewModel", "Sync Notifications Error: ${notifEx.message}", notifEx)
+                }
             } catch (e: Exception) {
                 // Fail-safe
                 android.util.Log.e("AppViewModel", "SyncAllWithBackend Error: ${e.message}", e)
@@ -642,6 +887,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val calculatedRank = getRankFromCredits(user.knowledgeCredits, user.contributionCredits)
         val updated = user.copy(currentRank = calculatedRank)
         userDao.insertUser(updated)
+        
+        if (updated.id == "me" && updated.email.isNotBlank()) {
+            SocketManager.joinUser(updated.email)
+        }
         
         // Save to MongoDB via our express api if the updated user is the active logged in user
         if (updated.id == "me" && updated.email.isNotBlank() && _isBackendConnected.value) {
@@ -768,33 +1017,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             
-            val seedMessage = ChatMessageEntity(
-                roomId = finalRoomId,
-                senderId = "other",
-                senderName = user.name,
-                messageText = "Greetings. I am honored to synchronize minds with you.",
-                timestamp = System.currentTimeMillis(),
-                status = "Read"
-            )
-            chatDao.insertMessage(seedMessage)
-            
             _selectedRoomId.value = finalRoomId
             _currentTab.value = DashboardTab.Messaging
             closeProfileDialog()
             
             if (makeActive) {
+                SocketManager.joinRoom(finalRoomId)
                 _toastMessage.emit("Focus Connection initialized with ${user.name}!")
             } else {
                 _toastMessage.emit("${user.name} queued. Terminal capacity at limit (Max 3). Swap connections in Messaging tab!")
-            }
-
-            // Dispatch seed message to backend
-            if (_isBackendConnected.value && finalRoomId > 0) {
-                try {
-                    ApiClient.getService().sendChatMessage(finalRoomId, seedMessage)
-                } catch (e: Exception) {
-                    // Fail-safe
-                }
             }
         }
     }
@@ -911,21 +1142,82 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val me = userDao.getUserById("me")
             if (me != null && me.id != hostUser.id) {
-                val existing = visitorDao.getVisitorRecord(hostUser.id, me.name)
-                val visitor = if (existing != null) {
-                    existing.copy(timestamp = System.currentTimeMillis())
-                } else {
-                    ProfileVisitorEntity(
-                        hostUserId = hostUser.id,
-                        visitorName = me.name,
-                        visitorTerritory = me.territory,
-                        visitorFlag = me.flagEmoji,
-                        visitorRank = me.currentRank,
-                        timestamp = System.currentTimeMillis()
-                    )
+                // Record profile visit on backend (recipient receives remote notification)
+                if (_isBackendConnected.value) {
+                    try {
+                        val hostEmail = if (hostUser.email.isNotBlank()) hostUser.email else hostUser.id
+                        ApiClient.getService().recordProfileVisit(hostEmail.lowercase().trim())
+                    } catch (e: Exception) {
+                        android.util.Log.e("AppViewModel", "Failed to record backend profile view: ${e.message}", e)
+                    }
                 }
-                visitorDao.insertVisitor(visitor)
-                _toastMessage.emit("Notification dispatched: ${me.name} (${me.flagEmoji}) viewed ${hostUser.name}'s profile!")
+            }
+        }
+    }
+
+    fun sendFriendRequest(targetUser: UserEntity) {
+        viewModelScope.launch {
+            _toastMessage.emit("Friend request dispatched to ${targetUser.name}!")
+            if (_isBackendConnected.value) {
+                try {
+                    val targetEmail = if (targetUser.email.isNotBlank()) targetUser.email else targetUser.id
+                    ApiClient.getService().sendFriendRequest(targetEmail.lowercase().trim())
+                } catch (e: Exception) {
+                    android.util.Log.e("AppViewModel", "Failed to send friend request on backend: ${e.message}", e)
+                }
+            }
+        }
+    }
+
+    fun refreshNotifications() {
+        viewModelScope.launch {
+            if (!_isBackendConnected.value) return@launch
+            try {
+                val remoteNotifs = ApiClient.getService().getNotifications()
+                notificationDao.deleteAllNotifications()
+                if (remoteNotifs.isNotEmpty()) {
+                    val mapped = remoteNotifs.map { dto ->
+                        NotificationEntity(
+                            id = dto.id,
+                            recipientId = dto.recipientId,
+                            senderId = dto.senderId,
+                            type = dto.type,
+                            title = dto.title,
+                            body = dto.body,
+                            isRead = dto.isRead,
+                            createdAt = dto.createdAt
+                        )
+                    }
+                    notificationDao.insertNotifications(mapped)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("AppViewModel", "refreshNotifications error: ${e.message}", e)
+            }
+        }
+    }
+
+    fun markNotificationAsRead(id: String) {
+        viewModelScope.launch {
+            notificationDao.markAsRead(id)
+            if (_isBackendConnected.value) {
+                try {
+                    ApiClient.getService().markNotificationAsRead(id)
+                } catch (e: Exception) {
+                    android.util.Log.e("AppViewModel", "markNotificationAsRead failure: ${e.message}", e)
+                }
+            }
+        }
+    }
+
+    fun markAllNotificationsAsRead() {
+        viewModelScope.launch {
+            notificationDao.markAllAsRead()
+            if (_isBackendConnected.value) {
+                try {
+                    ApiClient.getService().markAllNotificationsAsRead()
+                } catch (e: Exception) {
+                    android.util.Log.e("AppViewModel", "markAllNotificationsAsRead failure: ${e.message}", e)
+                }
             }
         }
     }
@@ -967,8 +1259,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectRoom(roomId: Int?) {
+        _chatLimit.value = 40
         _selectedRoomId.value = roomId
+        
         if (roomId != null) {
+            SocketManager.joinRoom(roomId)
             markRoomAsRead(roomId)
             if (_isBackendConnected.value) {
                 viewModelScope.launch {
@@ -980,6 +1275,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                 chatDao.deleteMessage(localMatch)
                             }
                             chatDao.insertMessage(msg)
+                        }
+                        try {
+                            val remoteReceipts = ApiClient.getService().getChatReceipts(roomId)
+                            remoteReceipts.forEach { receipt ->
+                                chatDao.insertReceipt(receipt)
+                            }
+                        } catch (receiptEx: Exception) {
+                            // Safe fallback
                         }
                         markRoomAsRead(roomId)
                     } catch (e: Exception) {
@@ -1164,6 +1467,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         _toastMessage.emit("+1 KC added to author's merit record!")
                         awardAuthorPoints(post.authorId, kDelta = 5, cDelta = 0)
+
+
                     }
                 }
                 "Helpful" -> {
@@ -1184,6 +1489,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         _toastMessage.emit("+1 CC added to author's social action index!")
                         awardAuthorPoints(post.authorId, kDelta = 0, cDelta = 5)
+
+
                     }
                 }
                 "Inspiring" -> {
@@ -1204,6 +1511,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         _toastMessage.emit("Author's Reputation score elevated by +1%!")
                         incrementReputation(post.authorId, delta = 1)
+
+
                     }
                 }
             }
@@ -1265,6 +1574,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 authorRank = me.currentRank,
                 content = commentText
             )
+
+
 
             // Submit to backend first if online to get backend IDs and avoid duplication
             if (_isBackendConnected.value) {
@@ -1347,8 +1658,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val room = chatDao.getRoomById(roomId) ?: return@launch
             if (room.isActive) {
-                _selectedRoomId.value = roomId
-                markRoomAsRead(roomId)
+                selectRoom(roomId)
                 return@launch
             }
 
@@ -1360,8 +1670,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
             val updated = room.copy(isActive = true, isWaiting = false)
             chatDao.updateRoom(updated)
-            _selectedRoomId.value = roomId
-            markRoomAsRead(roomId)
+            selectRoom(roomId)
             if (_isBackendConnected.value) {
                 try {
                     ApiClient.getService().swapRoom(roomId)
@@ -1378,6 +1687,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val room = chatDao.getRoomById(roomId) ?: return@launch
             val updated = room.copy(isActive = false, isWaiting = true)
             chatDao.updateRoom(updated)
+            SocketManager.leaveRoom(roomId)
             if (_selectedRoomId.value == roomId) {
                 _selectedRoomId.value = null
             }
@@ -1398,6 +1708,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             chatDao.markRoomAsDeleted(roomId)
             // chatDao.deleteRoomFromDb(roomId) // soft delete only so that it is not redownloaded and recreated during sync/polling
             chatDao.deleteMessagesForRoom(roomId)
+            SocketManager.leaveRoom(roomId)
             if (_selectedRoomId.value == roomId) {
                 _selectedRoomId.value = null
             }
@@ -1426,40 +1737,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
+            val timestamp = System.currentTimeMillis()
             val message = ChatMessageEntity(
+                id = 0,
                 roomId = roomId,
                 senderId = myEmail,
                 senderName = myName,
                 messageText = trimmed,
-                timestamp = System.currentTimeMillis(),
+                timestamp = timestamp,
                 status = "Sent"
             )
 
+            // Insert locally first for UI responsiveness
+            chatDao.insertMessage(message)
+
             if (_isBackendConnected.value) {
-                try {
-                    val savedMessageOnBackend = ApiClient.getService().sendChatMessage(roomId, message)
-                    val localDraft = chatDao.getMessageByRoomSenderAndText(roomId, "me", trimmed) ?:
-                                     chatDao.getMessageByRoomSenderAndText(roomId, myEmail, trimmed)
-                    if (localDraft != null) {
-                        chatDao.deleteMessage(localDraft)
-                    }
-                    chatDao.insertMessage(savedMessageOnBackend)
-                } catch (e: Exception) {
-                    chatDao.insertMessage(message)
-                }
-            } else {
-                chatDao.insertMessage(message)
+                SocketManager.sendMessage(message)
             }
 
             val room = chatDao.getRoomById(roomId)
             if (room != null) {
                 chatDao.updateRoom(room.copy(
                     lastMessage = trimmed,
-                    lastMessageTime = System.currentTimeMillis()
+                    lastMessageTime = timestamp
                 ))
             }
 
-            simulatePartnerReaction(roomId, message.timestamp)
+            // Simulate Delivered and Read loops for realistic UX receipts
+            val resolvedPartner = if (room != null) mapRoomForUser(room, myName).participantName else "CCC"
+            viewModelScope.launch {
+                // 1. Deliver the message in 1.2 second
+                kotlinx.coroutines.delay(1200)
+                onMessageDelivered(roomId, timestamp, resolvedPartner)
+
+                // 2. Read the message in 2.2 seconds
+                kotlinx.coroutines.delay(1000)
+                onMessageRead(roomId, timestamp, resolvedPartner)
+            }
         }
     }
 
@@ -1506,22 +1820,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val user = userDao.getUserById("me")
             val myName = user?.name ?: "Me"
-            val existingReceipt = chatDao.getMessageByRoomSenderAndText(roomId, "read_receipt", myName)
+            val existingReceipt = chatDao.getReceipt(roomId, myName, "read")
             if (existingReceipt != null && existingReceipt.timestamp >= timestamp) {
                 return@launch
             }
-            val receipt = ChatMessageEntity(
+            val receipt = ChatReceiptEntity(
+                id = "${roomId}_${myName}_read",
                 roomId = roomId,
-                senderId = "read_receipt",
                 senderName = myName,
-                messageText = timestamp.toString(),
+                type = "read",
                 timestamp = timestamp
             )
-            chatDao.insertMessage(receipt)
+            chatDao.insertReceipt(receipt)
             if (_isBackendConnected.value) {
-                try {
-                    ApiClient.getService().sendChatMessage(roomId, receipt)
-                } catch (e: Exception) { }
+                SocketManager.sendReadReceipt(roomId, timestamp, myName)
             }
         }
     }
@@ -1530,82 +1842,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val user = userDao.getUserById("me")
             val myName = user?.name ?: "Me"
-            val existingReceipt = chatDao.getMessageByRoomSenderAndText(roomId, "delivered_receipt", myName)
+            val existingReceipt = chatDao.getReceipt(roomId, myName, "delivered")
             if (existingReceipt != null && existingReceipt.timestamp >= timestamp) {
                 return@launch
             }
-            val receipt = ChatMessageEntity(
+            val receipt = ChatReceiptEntity(
+                id = "${roomId}_${myName}_delivered",
                 roomId = roomId,
-                senderId = "delivered_receipt",
                 senderName = myName,
-                messageText = timestamp.toString(),
+                type = "delivered",
                 timestamp = timestamp
             )
-            chatDao.insertMessage(receipt)
+            chatDao.insertReceipt(receipt)
             if (_isBackendConnected.value) {
-                try {
-                    ApiClient.getService().sendChatMessage(roomId, receipt)
-                } catch (e: Exception) { }
+                SocketManager.sendDeliveryReceipt(roomId, timestamp, myName)
             }
         }
     }
 
-    private fun simulatePartnerReaction(roomId: Int, messageTimestamp: Long) {
-        viewModelScope.launch {
-            val me = userDao.getUserById("me") ?: return@launch
-            val room = chatDao.getRoomById(roomId) ?: return@launch
-            val myName = me.name ?: "Me"
-            val parts = room.participantName.split(" | ")
-            val partnerName = if (parts.size == 2) {
-                val isCreator = parts[0].equals(myName, ignoreCase = true)
-                if (isCreator) parts[1] else parts[0]
-            } else {
-                room.participantName
-            }
-
-            // 1. WhatsApp Delivery indicator simulation
-            kotlinx.coroutines.delay(800)
-            val deliveryReceipt = ChatMessageEntity(
-                roomId = roomId,
-                senderId = "delivered_receipt",
-                senderName = partnerName,
-                messageText = messageTimestamp.toString(),
-                timestamp = messageTimestamp
-            )
-            chatDao.insertMessage(deliveryReceipt)
-            if (_isBackendConnected.value) {
-                try {
-                    ApiClient.getService().sendChatMessage(roomId, deliveryReceipt)
-                } catch (e: Exception) { }
-            }
-
-            // 2. WhatsApp Read receipt indicator simulation (Blue ticks!)
-            kotlinx.coroutines.delay(1000)
-            val readReceipt = ChatMessageEntity(
-                roomId = roomId,
-                senderId = "read_receipt",
-                senderName = partnerName,
-                messageText = messageTimestamp.toString(),
-                timestamp = messageTimestamp
-            )
-            chatDao.insertMessage(readReceipt)
-            if (_isBackendConnected.value) {
-                try {
-                    ApiClient.getService().sendChatMessage(roomId, readReceipt)
-                } catch (e: Exception) { }
-            }
-        }
-    }
-
-    private fun getDynamicPartnerReply(name: String): String {
-        return listOf(
-            "An interesting inquiry, citizen. We must work together on our home territory missions.",
-            "I agree. True meritocracy in our digital Empire will restore social health.",
-            "Let's focus our contributions on planting trees this weekend. What do you think?",
-            "Wisdom is indeed the currency of absolute value. Let's research more on this.",
-            "Your profile visitor ledger is looking great. I left an endorsement for your Rank progress."
-        ).random()
-    }
 
     // Register candidacy for Sovereign Crown Elections
     fun registerElectionsCandidate(manifesto: String, vision: String) {
@@ -1783,13 +2037,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // Database pre-population logic
     private fun prepopulateDb() {
-        if (true) return // Completely clean start, no predefined users inside the database
         viewModelScope.launch {
+            // Check if our special pre-populated citizen exists to see if we need prepopulation
+            val existingOther = userDao.getUserById("gandhi_avatar")
+            if (existingOther != null) return@launch // Already pre-populated
+
             // Clean up legacy dummy IDs from previous compilations
             userDao.deleteUserById("user_test_citizen")
-
-            val existingMe = userDao.getUserById("me")
-            if (existingMe != null) return@launch // Already pre-populated
 
             // Create some sample users as administrative figures and mock candidates
             val users = listOf(
