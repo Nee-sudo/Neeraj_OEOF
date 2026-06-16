@@ -1092,15 +1092,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 }
             }
             
-            // Try matching pre-populated user or registered user in Room
-            val matchedUser = when {
-                lowercaseId == "arjun" || lowercaseId == "gandhi" || lowercaseId.contains("arjun") -> userDao.getUserById("gandhi_avatar")
-                lowercaseId == "clara" || lowercaseId.contains("clara") -> userDao.getUserById("clara_nobel")
-                lowercaseId == "kofi" || lowercaseId.contains("kofi") -> userDao.getUserById("kenya_leader")
-                else -> {
-                    userDao.getUserByEmailOrUsername(lowercaseId)
-                }
-            }
+            // Try matching registered user in Room
+            val matchedUser = userDao.getUserByEmailOrUsername(lowercaseId)
 
             if (matchedUser != null) {
                 // Check if passphrase matches
@@ -1648,7 +1641,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             postDao.getPostById(postId)?.let { post ->
                 val updated = post.copy(content = newContent)
                 postDao.updatePost(updated)
-                _toastMessage.emit("Post updated in the Public Square.")
+                try {
+                    ApiClient.getService().editPost(postId, mapOf("content" to newContent))
+                    _toastMessage.emit("Post updated in the Public Square.")
+                } catch (e: Exception) {
+                    _toastMessage.emit("Post updated locally. Server synchronization pending.")
+                }
             }
         }
     }
@@ -2038,245 +2036,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
     // Database pre-population logic
     private fun prepopulateDb() {
         viewModelScope.launch {
-            // Check if our special pre-populated citizen exists to see if we need prepopulation
-            val existingOther = userDao.getUserById("gandhi_avatar")
-            if (existingOther != null) return@launch // Already pre-populated
+            // Check if any missions exist to see if we need prepopulation
+            val existingCount = missionDao.getMissionsCount()
+            if (existingCount > 0) return@launch // Already pre-populated
 
             // Clean up legacy dummy IDs from previous compilations
             userDao.deleteUserById("user_test_citizen")
-
-            // Create some sample users as administrative figures and mock candidates
-            val users = listOf(
-                UserEntity(
-                    id = "gandhi_avatar",
-                    name = "Arjun Patel",
-                    username = "@arjun_vision",
-                    email = "arjun@oneearth.io",
-                    dob = "1994-04-12",
-                    territory = "India",
-                    flagEmoji = "🇮🇳",
-                    gender = "Male",
-                    currentRank = "Royal Candidate",
-                    knowledgeCredits = 340,
-                    contributionCredits = 180,
-                    reputationScore = 99,
-                    personalityTraits = "Visionary,Leader,Philosopher,Teacher,Humanitarian",
-                    bio = "Coordinating organic local waste recycling systems in Maharashtra. Let's build the empire from the soil.",
-                    isCandidate = true,
-                    campaignVision = "United Global Ecological Safeguards",
-                    campaignManifesto = "My campaign centers around tying modern technology directly with micro-farming community actions. Let's make every territory garden green.",
-                    votesCount = 12
-                ),
-                UserEntity(
-                    id = "clara_nobel",
-                    name = "Clara Dupont",
-                    username = "@clara_sage",
-                    email = "clara@oneearth.io",
-                    dob = "1990-11-20",
-                    territory = "France",
-                    flagEmoji = "🇫🇷",
-                    gender = "Female",
-                    currentRank = "Guardian",
-                    knowledgeCredits = 410,
-                    contributionCredits = 150,
-                    reputationScore = 98,
-                    personalityTraits = "Scientist,Educator,Philosopher,Visionary,Creator",
-                    bio = "Physics educator. Translating scientific literacy into open global civic solutions.",
-                    isCandidate = true,
-                    campaignVision = "Absolute Scientific Open Access",
-                    campaignManifesto = "Education is the foundation of meritocratic leadership. I intend to build the Open Digital Library with zero economic payload.",
-                    votesCount = 15
-                ),
-                UserEntity(
-                    id = "kenya_leader",
-                    name = "Kofi Mensah",
-                    username = "@kofi_builder",
-                    email = "kofi@oneearth.io",
-                    dob = "1988-06-03",
-                    territory = "Kenya",
-                    flagEmoji = "🇰🇪",
-                    gender = "Male",
-                    currentRank = "Contributor",
-                    knowledgeCredits = 175,
-                    contributionCredits = 210,
-                    reputationScore = 97,
-                    personalityTraits = "Builder,Humanitarian,Leader,Explorer,Creator",
-                    bio = "Constructing modular solar installations in dry-zones across East Africa.",
-                    isCandidate = true,
-                    campaignVision = "Grassroots Infrastructure Mobilization",
-                    campaignManifesto = "Action outweighs debate. I will introduce regional solar and clean water blueprints as active Imperial missions for collective credit.",
-                    votesCount = 8
-                ),
-                UserEntity(
-                    id = "test@oneearth.io",
-                    name = "Test Citizen",
-                    username = "@test_citizen",
-                    email = "test@oneearth.io",
-                    dob = "1999-01-01",
-                    territory = "United States",
-                    flagEmoji = "🇺🇸",
-                    gender = "Male",
-                    currentRank = "Explorer",
-                    knowledgeCredits = 120,
-                    contributionCredits = 60,
-                    reputationScore = 98,
-                    personalityTraits = "Explorer,Builder,Creator",
-                    bio = "Dedicated pioneer testing our One Earth connection hub.",
-                    isCandidate = false,
-                    campaignVision = "",
-                    campaignManifesto = "",
-                    votesCount = 0,
-                    hasVoted = false,
-                    onboardingCompleted = true,
-                    citizenOathAccepted = true,
-                    followers = 10,
-                    following = 15,
-                    profilePhoto = "",
-                    passphrase = "password123"
-                )
-            )
-            for (u in users) {
-                userDao.insertUser(u)
-            }
-
-            // Create post entries for feed
-            val posts = listOf(
-                PostEntity(
-                    id = 1,
-                    authorId = "gandhi_avatar",
-                    authorName = "Arjun Patel",
-                    authorUsername = "@arjun_vision",
-                    authorRank = "Royal Candidate",
-                    authorTerritory = "India",
-                    authorFlag = "🇮🇳",
-                    content = "We have completed the micro-reservoir blueprint. By shifting our daily action from empty popularity loops, we spent 40 hours building an irrigation system for 3 smallholder farms. Here is the open-access guide to local sand-dams.",
-                    category = "Article",
-                    knowledgeValue = 18,
-                    contributionProof = 24,
-                    reputationImpact = 99
-                ),
-                PostEntity(
-                    id = 2,
-                    authorId = "clara_nobel",
-                    authorName = "Clara Dupont",
-                    authorUsername = "@clara_sage",
-                    authorRank = "Guardian",
-                    authorTerritory = "France",
-                    authorFlag = "🇫🇷",
-                    content = "What is the collective responsibility of technological builders when designing attention architectures? We should explicitly reject arbitrary metric casinos in favor of qualitative dialogue focus. Join our structural inquiry.",
-                    category = "Inquiry",
-                    knowledgeValue = 35,
-                    contributionProof = 12,
-                    reputationImpact = 98
-                ),
-                PostEntity(
-                    id = 3,
-                    authorId = "kenya_leader",
-                    authorName = "Kofi Mensah",
-                    authorUsername = "@kofi_builder",
-                    authorRank = "Contributor",
-                    authorTerritory = "Kenya",
-                    authorFlag = "🇰🇪",
-                    content = "The solar micro-grid model for Lake Victoria fishing villages has successfully completed 120 run-hours. To combat grid-vulnerability, we implemented locally serviceable battery units. Looking for developers to join the telemetry code debaters.",
-                    category = "Debate",
-                    knowledgeValue = 15,
-                    contributionProof = 32,
-                    reputationImpact = 97
-                )
-            )
-            for (p in posts) {
-                postDao.insertPost(p)
-            }
-
-            // Create initial commenting entries
-            val comments = listOf(
-                CommentEntity(postId = 1, authorName = "Clara Dupont", authorFlag = "🇫🇷", authorRank = "Guardian", content = "This sand-dam technique is spectacular Arjun. The physics of sediment water retention is pristine.", timestamp = System.currentTimeMillis() - 7000000),
-                CommentEntity(postId = 1, authorName = "Kofi Mensah", authorFlag = "🇰🇪", authorRank = "Contributor", content = "Can we customize these sand-dams for clay-heavy soil profiles? Let's check with some geologists in Kenya.", timestamp = System.currentTimeMillis() - 3000000),
-                CommentEntity(postId = 2, authorName = "Arjun Patel", authorFlag = "🇮🇳", authorRank = "Noble", content = "Indeed Clara. Depth of connection directly protects systemic human sanity.", timestamp = System.currentTimeMillis() - 10000000)
-            )
-            for (c in comments) {
-                commentDao.insertComment(c)
-            }
-
-            // Create mock Chat rooms representing Active Connections (max 3 max)
-            val chatRooms = listOf(
-                ChatRoomEntity(
-                    roomName = "Focus Group India",
-                    participantName = "Arjun Patel",
-                    participantFlag = "🇮🇳",
-                    participantRank = "Royal Candidate",
-                    participantTerritory = "India",
-                    lastMessage = "Let's review the sand-dam schematics this afternoon.",
-                    lastMessageTime = System.currentTimeMillis() - 40000,
-                    isActive = true,
-                    isWaiting = false
-                ),
-                ChatRoomEntity(
-                    roomName = "Mentorship Science",
-                    participantName = "Clara Dupont",
-                    participantFlag = "🇫🇷",
-                    participantRank = "Guardian",
-                    participantTerritory = "France",
-                    lastMessage = "I recommend checking out Platonic Meritocracy in the library.",
-                    lastMessageTime = System.currentTimeMillis() - 600000,
-                    isActive = true,
-                    isWaiting = false
-                ),
-                ChatRoomEntity(
-                    roomName = "Alliance Alliance",
-                    participantName = "Kofi Mensah",
-                    participantFlag = "🇰🇪",
-                    participantRank = "Contributor",
-                    participantTerritory = "Kenya",
-                    lastMessage = "The solar telemetry code is compiled.",
-                    lastMessageTime = System.currentTimeMillis() - 1200000,
-                    isActive = true,
-                    isWaiting = false
-                ),
-                // This room resides in the Waiting Queue because the user already has 3 active chats!
-                ChatRoomEntity(
-                    roomName = "Design Council",
-                    participantName = "Yuki Tanaka",
-                    participantFlag = "🇯🇵",
-                    participantRank = "Noble",
-                    participantTerritory = "Japan",
-                    lastMessage = "Hey there! I would love to partner up for the global education mission.",
-                    lastMessageTime = System.currentTimeMillis() - 3600000,
-                    isActive = false,
-                    isWaiting = true
-                ),
-                ChatRoomEntity(
-                    roomName = "Ecosystem Sync",
-                    participantName = "Mateo Silva",
-                    participantFlag = "🇧🇷",
-                    participantRank = "Baron",
-                    participantTerritory = "Brazil",
-                    lastMessage = "Our reforestation team is logging points. Connect with us!",
-                    lastMessageTime = System.currentTimeMillis() - 7200000,
-                    isActive = false,
-                    isWaiting = true
-                )
-            )
-            for (r in chatRooms) {
-                val rId = chatDao.insertRoom(r).toInt()
-                // Insert initial message history
-                if (r.isActive) {
-                    chatDao.insertMessage(ChatMessageEntity(roomId = rId, senderId = "other", senderName = r.participantName, messageText = r.lastMessage, timestamp = r.lastMessageTime - 2000))
-                } else {
-                    chatDao.insertMessage(ChatMessageEntity(roomId = rId, senderId = "other", senderName = r.participantName, messageText = r.lastMessage, timestamp = r.lastMessageTime))
-                }
-            }
-
-            // Create initial profile visitors logs
-            val visitors = listOf(
-                ProfileVisitorEntity(visitorName = "Arjun Patel", visitorTerritory = "India", visitorFlag = "🇮🇳", visitorRank = "Noble", timestamp = System.currentTimeMillis() - 120000),
-                ProfileVisitorEntity(visitorName = "Clara Dupont", visitorTerritory = "France", visitorFlag = "🇫🇷", visitorRank = "Guardian", timestamp = System.currentTimeMillis() - 360000),
-                ProfileVisitorEntity(visitorName = "Yuki Tanaka", visitorTerritory = "Japan", visitorFlag = "🇯🇵", visitorRank = "Noble", timestamp = System.currentTimeMillis() - 1800000),
-                ProfileVisitorEntity(visitorName = "Mateo Silva", visitorTerritory = "Brazil", visitorFlag = "🇧🇷", visitorRank = "Baron", timestamp = System.currentTimeMillis() - 3600000)
-            )
-            for (v in visitors) {
-                visitorDao.insertVisitor(v)
-            }
 
             // Create global active mission objectives
             val missions = listOf(

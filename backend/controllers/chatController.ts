@@ -334,3 +334,27 @@ export const deleteRoom = async (req: Request, res: Response) => {
   }
 };
 
+export const deleteMessage = async (req: Request, res: Response) => {
+  try {
+    const { roomId, messageId } = req.params;
+    const db = getFirestoreDb();
+    const docRef = db.collection('chatMessages').doc(String(messageId));
+    const docSnap = await docRef.get();
+    if (docSnap.exists) {
+      await docRef.delete();
+    } else {
+      const query = await db.collection('chatMessages')
+        .where('roomId', '==', Number(roomId))
+        .where('id', '==', Number(messageId))
+        .get();
+      if (!query.empty) {
+        await query.docs[0].ref.delete();
+      }
+    }
+    res.status(200).json({ success: true });
+  } catch (error: any) {
+    console.error("Firestore deleteMessage Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+

@@ -420,3 +420,88 @@ export const addComment = async (req: Request, res: Response) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+export const editComment = async (req: Request, res: Response) => {
+  try {
+    const { postId, commentId } = req.params;
+    const { content } = req.body;
+    const db = getFirestoreDb();
+    const docRef = db.collection('comments').doc(String(commentId));
+    let docSnap = await docRef.get();
+    
+    if (docSnap.exists) {
+      await docRef.update({ content, edited: true, timestamp: Date.now() });
+      res.status(200).json({ success: true });
+    } else {
+      const query = await db.collection('comments')
+        .where('postId', '==', Number(postId))
+        .where('id', '==', Number(commentId))
+        .get();
+      if (!query.empty) {
+        await query.docs[0].ref.update({ content, edited: true, timestamp: Date.now() });
+        res.status(200).json({ success: true });
+      } else {
+        res.status(404).json({ error: "Comment not found" });
+      }
+    }
+  } catch (error: any) {
+    console.error("Firestore editComment Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const deleteComment = async (req: Request, res: Response) => {
+  try {
+    const { postId, commentId } = req.params;
+    const db = getFirestoreDb();
+    const docRef = db.collection('comments').doc(String(commentId));
+    let docSnap = await docRef.get();
+    
+    if (docSnap.exists) {
+      await docRef.delete();
+      res.status(200).json({ success: true });
+    } else {
+      const query = await db.collection('comments')
+        .where('postId', '==', Number(postId))
+        .where('id', '==', Number(commentId))
+        .get();
+      if (!query.empty) {
+        await query.docs[0].ref.delete();
+        res.status(200).json({ success: true });
+      } else {
+        res.status(404).json({ error: "Comment not found" });
+      }
+    }
+  } catch (error: any) {
+    console.error("Firestore deleteComment Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const editPost = async (req: Request, res: Response) => {
+  try {
+    const { postId } = req.params;
+    const { content } = req.body;
+    const db = getFirestoreDb();
+    const docRef = db.collection('posts').doc(String(postId));
+    let docSnap = await docRef.get();
+    
+    if (docSnap.exists) {
+      await docRef.update({ content, edited: true });
+      const updatedSnap = await docRef.get();
+      res.status(200).json(normalizeBackendPost(updatedSnap.data()));
+    } else {
+      const query = await db.collection('posts').where('id', '==', Number(postId)).get();
+      if (!query.empty) {
+        await query.docs[0].ref.update({ content, edited: true });
+        const updatedSnap = await query.docs[0].ref.get();
+        res.status(200).json(normalizeBackendPost(updatedSnap.data()));
+      } else {
+        res.status(404).json({ error: "Post not found" });
+      }
+    }
+  } catch (error: any) {
+    console.error("Firestore editPost Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};

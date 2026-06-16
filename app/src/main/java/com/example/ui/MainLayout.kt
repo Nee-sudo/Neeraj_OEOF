@@ -2924,6 +2924,10 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
 @Composable
 fun PublicSquareTab(viewModel: AppViewModel) {
     val posts by viewModel.rankedPosts.collectAsState()
+    var lastVisiblePostIndex by remember { mutableStateOf(20) }
+    val visiblePosts = remember(posts, lastVisiblePostIndex) {
+        posts.take(lastVisiblePostIndex)
+    }
     val currentUser by viewModel.currentUserFlow.collectAsState()
     var postContent by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Inquiry") }
@@ -2980,7 +2984,7 @@ fun PublicSquareTab(viewModel: AppViewModel) {
                 contentPadding = PaddingValues(bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(posts) { post ->
+                items(visiblePosts) { post ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3145,6 +3149,38 @@ fun PublicSquareTab(viewModel: AppViewModel) {
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (posts.size > lastVisiblePostIndex) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            TextButton(
+                                onClick = { lastVisiblePostIndex += 20 },
+                                colors = ButtonDefaults.textButtonColors(contentColor = RegalGold)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = androidx.compose.material.icons.Icons.Default.ExpandMore,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        "LOAD MORE CITIZEN POSTS (${posts.size - lastVisiblePostIndex} REMAINING)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -3599,6 +3635,16 @@ fun FindFriendsTab(viewModel: AppViewModel) {
         }
     }
 
+    var lastVisibleIndex by remember { mutableStateOf(20) }
+
+    LaunchedEffect(searchQuery, selectedSortOption) {
+        lastVisibleIndex = 20
+    }
+
+    val visibleFriends = remember(filteredAndSortedFriends, lastVisibleIndex) {
+        filteredAndSortedFriends.take(lastVisibleIndex)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -3724,7 +3770,7 @@ fun FindFriendsTab(viewModel: AppViewModel) {
                     }
                 }
             } else {
-                items(filteredAndSortedFriends) { friend ->
+                items(visibleFriends) { friend ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3872,6 +3918,38 @@ fun FindFriendsTab(viewModel: AppViewModel) {
                                             Text("Message", color = CharcoalObsidian, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (filteredAndSortedFriends.size > lastVisibleIndex) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            TextButton(
+                                onClick = { lastVisibleIndex += 20 },
+                                colors = ButtonDefaults.textButtonColors(contentColor = RegalGold)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = androidx.compose.material.icons.Icons.Default.ExpandMore,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        "LOAD MORE GLOBAL CITIZENS (${filteredAndSortedFriends.size - lastVisibleIndex} REMAINING)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -5626,7 +5704,11 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
                         // Register candidacy switch button
                         if (me?.isCandidate == false) {
                             Button(
-                                onClick = { showCampaignModalByMe = true },
+                                onClick = {
+                                    campaignVision = me?.campaignVision ?: ""
+                                    campaignManifesto = me?.campaignManifesto ?: ""
+                                    showCampaignModalByMe = true
+                                },
                                 colors = ButtonDefaults.buttonColors(containerColor = RegalGold),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.height(32.dp)
@@ -5634,18 +5716,38 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
                                 Text("RUN FOR CROWN", color = CharcoalObsidian, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         } else {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = EmeraldSuccess.copy(alpha = 0.15f)),
-                                border = BorderStroke(0.5.dp, EmeraldSuccess),
-                                shape = RoundedCornerShape(8.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text(
-                                    "REGISTERED",
-                                    color = EmeraldSuccess,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = EmeraldSuccess.copy(alpha = 0.15f)),
+                                    border = BorderStroke(0.5.dp, EmeraldSuccess),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        "REGISTERED",
+                                        color = EmeraldSuccess,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        campaignVision = me?.campaignVision ?: ""
+                                        campaignManifesto = me?.campaignManifesto ?: ""
+                                        showCampaignModalByMe = true
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Campaign",
+                                        tint = RegalGold,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
                     }

@@ -63,6 +63,9 @@ interface OneEarthApiService {
     @POST("api/posts")
     suspend fun createPost(@Body post: PostEntity): PostEntity
 
+    @PUT("api/posts/{postId}")
+    suspend fun editPost(@Path("postId") postId: Int, @Body body: Map<String, String>): PostEntity
+
     @PUT("api/posts/{postId}/react")
     suspend fun reactToPost(@Path("postId") postId: Int, @Body request: ReactionRequest): PostEntity
 

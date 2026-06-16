@@ -177,7 +177,7 @@ interface UserDao {
     @Query("DELETE FROM users")
     suspend fun deleteAllUsers()
 
-    @Query("DELETE FROM users WHERE id != 'me' AND id NOT IN ('gandhi_avatar', 'clara_nobel', 'kenya_leader', 'test@oneearth.io')")
+    @Query("DELETE FROM users WHERE id != 'me'")
     suspend fun deleteAllNonMeUsers()
 
     @Query("SELECT * FROM users WHERE isCandidate = 1 AND id != 'me' AND id NOT LIKE 'user_%' ORDER BY votesCount DESC, knowledgeCredits DESC")
@@ -338,6 +338,9 @@ interface MissionDao {
 
     @Query("DELETE FROM imperial_missions")
     suspend fun deleteAllMissions()
+
+    @Query("SELECT COUNT(*) FROM imperial_missions")
+    suspend fun getMissionsCount(): Int
 }
 
 @Dao

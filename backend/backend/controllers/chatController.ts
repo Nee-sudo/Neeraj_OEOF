@@ -141,6 +141,19 @@ export const getMessages = async (req: Request, res: Response) => {
   }
 };
 
+export const getReceipts = async (req: Request, res: Response) => {
+  try {
+    const { roomId } = req.params;
+    const db = getFirestoreDb();
+    const snapshot = await db.collection('chatReceipts').where('roomId', '==', Number(roomId)).get();
+    const receipts = snapshot.docs.map(doc => doc.data());
+    res.status(200).json(receipts);
+  } catch (error: any) {
+    console.error("Firestore getReceipts Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const sendMessage = async (req: Request, res: Response) => {
   try {
     const { roomId } = req.params;
@@ -291,6 +304,16 @@ export const deleteRoom = async (req: Request, res: Response) => {
       await doc.ref.delete();
     }
 
+    // Delete matching receipts too in chatReceipts
+    try {
+      const receiptsQuery = await db.collection('chatReceipts').where('roomId', '==', Number(roomId)).get();
+      for (const doc of receiptsQuery.docs) {
+        await doc.ref.delete();
+      }
+    } catch (err) {
+      console.error("Error deleting matching receipts:", err);
+    }
+
     // 2. Delete the room document
     const roomRef = db.collection('chatRooms').doc(String(roomId));
     const roomSnap = await roomRef.get();
@@ -311,3 +334,26 @@ export const deleteRoom = async (req: Request, res: Response) => {
   }
 };
 
+export const deleteMessage = async (req: Request, res: Response) => {
+  try {
+    const { roomId, messageId } = req.params;
+    const db = getFirestoreDb();
+    const docRef = db.collection('chatMessages').doc(String(messageId));
+    const docSnap = await docRef.get();
+    if (docSnap.exists) {
+      await docRef.delete();
+    } else {
+      const query = await db.collection('chatMessages')
+        .where('roomId', '==', Number(roomId))
+        .where('id', '==', Number(messageId))
+        .get();
+      if (!query.empty) {
+        await query.docs[0].ref.delete();
+      }
+    }
+    res.status(200).json({ success: true });
+  } catch (error: any) {
+    console.error("Firestore deleteMessage Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
