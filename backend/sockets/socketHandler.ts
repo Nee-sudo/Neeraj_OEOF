@@ -18,6 +18,19 @@ export const sendRealtimeNotification = (recipientId: string, notification: any)
   }
 };
 
+export const getActiveRoomForUser = (userId: string): number | null => {
+  if (!ioInstance) return null;
+  const cleanId = userId.toLowerCase().trim();
+  const connectedSockets = Array.from(ioInstance.sockets.sockets.values());
+  for (const s of connectedSockets) {
+    const sock = s as any;
+    if (sock.userId === cleanId && sock.activeRoomId !== undefined && sock.activeRoomId !== null) {
+      return sock.activeRoomId;
+    }
+  }
+  return null;
+};
+
 export const setupSocketHandler = (io: Server) => {
   ioInstance = io;
   io.on('connection', (socket: Socket) => {
@@ -25,22 +38,41 @@ export const setupSocketHandler = (io: Server) => {
 
     // Listen to subscribe to user personal notification channel
     socket.on('join_user', (data: { userId: string }) => {
-      const userChannel = `user_${String(data.userId).toLowerCase().trim()}`;
+      const userId = String(data.userId).toLowerCase().trim();
+      const userChannel = `user_${userId}`;
       socket.join(userChannel);
+      (socket as any).userId = userId;
       console.log(`🔌 WebSockets: Client ${socket.id} joined personal channel ${userChannel}`);
     });
 
     socket.on('leave_user', (data: { userId: string }) => {
-      const userChannel = `user_${String(data.userId).toLowerCase().trim()}`;
+      const userId = String(data.userId).toLowerCase().trim();
+      const userChannel = `user_${userId}`;
       socket.leave(userChannel);
+      if ((socket as any).userId === userId) {
+        delete (socket as any).userId;
+      }
       console.log(`🔌 WebSockets: Client ${socket.id} left personal channel ${userChannel}`);
     });
 
     // Listen to subscribe to a chat room channel
     socket.on('join_room', (data: { roomId: string | number }) => {
-      const roomChannel = `room_${data.roomId}`;
+      const roomId = Number(data.roomId);
+      const roomChannel = `room_${roomId}`;
       socket.join(roomChannel);
+      (socket as any).activeRoomId = roomId;
       console.log(`💬 WebSockets: Client ${socket.id} joined channel ${roomChannel}`);
+    });
+
+    // Listen to unsubscribe from a chat room channel
+    socket.on('leave_room', (data: { roomId: string | number }) => {
+      const roomId = Number(data.roomId);
+      const roomChannel = `room_${roomId}`;
+      socket.leave(roomChannel);
+      if ((socket as any).activeRoomId === roomId) {
+        delete (socket as any).activeRoomId;
+      }
+      console.log(`💬 WebSockets: Client ${socket.id} left channel ${roomChannel}`);
     });
 
     // Real-time chat message exchange
@@ -76,7 +108,8 @@ export const setupSocketHandler = (io: Server) => {
               senderId,
               "message",
               `New message from ${senderName}`,
-              messageText
+              messageText,
+              Number(roomId)
             );
           }
         } catch (notifErr) {

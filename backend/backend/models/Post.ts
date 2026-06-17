@@ -15,4 +15,9 @@ export interface IPost {
   reactedWiseUsers: string; // Comma separated user IDs
   reactedHelpfulUsers: string; // Comma separated user IDs
   reactedInspiringUsers: string; // Comma separated user IDs
+  royalSignature?: {
+    monarchTitle: string; // "King" | "Queen"
+    monarchName: string;
+    signedAt: number;
+  };
 }

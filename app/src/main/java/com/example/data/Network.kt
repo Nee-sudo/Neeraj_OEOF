@@ -120,6 +120,31 @@ interface OneEarthApiService {
 
     @POST("api/users/{userId}/friend-request")
     suspend fun sendFriendRequest(@Path("userId") userId: String): Map<String, Boolean>
+
+    // ── Royal Profile Endpoints ──────────────────────────────
+    @GET("api/royal-profiles/monarchs/{monarchId}")
+    suspend fun getMonarchProfile(@Path("monarchId") monarchId: String): MonarchProfileResponse
+
+    @GET("api/royal-profiles/monarchs/{monarchId}/throne-worthiness")
+    suspend fun getThroneWorthiness(@Path("monarchId") monarchId: String): ThroneWorthinessResponse
+
+    @GET("api/monarchs/{monarchId}/metrics")
+    suspend fun getMonarchMetrics(@Path("monarchId") monarchId: String): MonarchMetricsResponse
+
+    @GET("api/monarchs/{monarchId}/timeline")
+    suspend fun getMonarchTimeline(@Path("monarchId") monarchId: String): List<TimelineMilestone>
+
+    @GET("api/monarchs/hall-of-monarchs/detailed")
+    suspend fun getHallOfMonarchsDetailed(): List<HallOfMonarchEntry>
+
+    @GET("api/royal-profiles/members/{memberId}")
+    suspend fun getRoyalMemberProfile(@Path("memberId") memberId: String): RoyalMemberProfileResponse
+
+    @GET("api/monarchs/{monarchId}/council")
+    suspend fun getRoyalCouncil(@Path("monarchId") monarchId: String): List<CouncilMemberDTO>
+
+    @GET("api/monarchs/{monarchId}/decrees")
+    suspend fun getRoyalDecrees(@Path("monarchId") monarchId: String): List<RoyalDecreeDTO>
 }
 
 // ==========================================
@@ -190,3 +215,102 @@ object ApiClient {
         }
     }
 }
+
+// ── Royal Response DTO Classes ──────────────────────────
+data class MonarchProfileResponse(
+    val success: Boolean,
+    val profile: MonarchProfileDTO?
+)
+
+data class MonarchProfileDTO(
+    val monarchCitizenId: String,
+    val title: String,           // "King" or "Queen"
+    val reignStartDate: Long,
+    val reignEndDate: Long?,
+    val territoryId: String?,
+    val throneWorthiness: ThroneWorthinessDTO,
+    val legacyPoints: Int,
+    val citizensHelped: Int,
+    val policiesInitiated: Int,
+    val territoriesInfluenced: Int,
+    val decreesPosted: Int,
+    val crownType: String,       // "Imperial Gold" or "Royal Diamond"
+    val auraType: String,        // "Golden Sun" or "Diamond Moon"
+    val approvalRating: Int,
+    val royalCouncil: List<String>,
+    val timeline: List<TimelineMilestone>
+)
+
+data class ThroneWorthinessResponse(
+    val success: Boolean,
+    val worthiness: ThroneWorthinessDTO?
+)
+
+data class ThroneWorthinessDTO(
+    val percentage: Float,
+    val knowledgeComponent: Float,
+    val contributionComponent: Float,
+    val reputationComponent: Float,
+    val publicSupportComponent: Float
+)
+
+data class MonarchMetricsResponse(
+    val legacyPoints: Int,
+    val citizensHelped: Int,
+    val policiesInitiated: Int,
+    val territoriesInfluenced: Int,
+    val decreesPosted: Int,
+    val approvalRating: Int
+)
+
+data class TimelineMilestone(
+    val rank: String,
+    val milestone: String,
+    val date: Long
+)
+
+data class HallOfMonarchEntry(
+    val monarchCitizenId: String,
+    val title: String,
+    val name: String,
+    val territory: String,
+    val reignStartDate: Long,
+    val reignEndDate: Long?,
+    val legacyPoints: Int,
+    val approvalRating: Int,
+    val decreesPosted: Int
+)
+
+data class RoyalMemberProfileResponse(
+    val success: Boolean,
+    val profile: RoyalMemberProfileDTO?
+)
+
+data class RoyalMemberProfileDTO(
+    val citizenId: String,
+    val rank: String,
+    val auraLevel: String,    // "None","Bronze","Silver","Golden","Imperial","Legendary"
+    val knowledgeCredits: Int,
+    val contributionCredits: Int,
+    val mergedCreditsTotal: Int,
+    val councilRole: String?,
+    val achievements: List<String>
+)
+
+data class CouncilMemberDTO(
+    val citizenId: String,
+    val name: String,
+    val role: String,
+    val auraLevel: String,
+    val appointedAt: Long
+)
+
+data class RoyalDecreeDTO(
+    val id: String,
+    val title: String,
+    val content: String,
+    val monarchId: String,
+    val status: String,
+    val territoryId: String?,
+    val publishedAt: Long
+)

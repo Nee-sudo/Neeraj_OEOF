@@ -11,7 +11,8 @@ export const createNotificationDirectly = async (
   senderId: string,
   type: string,
   title: string,
-  body: string
+  body: string,
+  roomId?: number
 ) => {
   try {
     const db = getFirestoreDb();
@@ -33,6 +34,20 @@ export const createNotificationDirectly = async (
 
     const cleanRecipient = normalizedRecipient;
     const cleanSender = normalizedSender;
+
+    // Suppress message notifications if recipient is actively viewing the room
+    if (type === 'message' && roomId !== undefined) {
+      try {
+        const { getActiveRoomForUser } = require('../sockets/socketHandler');
+        const activeRoom = getActiveRoomForUser(cleanRecipient);
+        if (activeRoom !== null && activeRoom === Number(roomId)) {
+          console.log(`[NOTIFICATION SUPPRESSED] Recipient: ${cleanRecipient} is actively viewing room ${roomId}`);
+          return null;
+        }
+      } catch (err) {
+        console.error("Error checking active room for user:", err);
+      }
+    }
 
     const notifId = generateUniqueId();
     const notification: INotification = {

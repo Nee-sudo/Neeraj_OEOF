@@ -1819,6 +1819,16 @@ fun MainDashboardView(viewModel: AppViewModel, snackbarHostState: SnackbarHostSt
     val commentsPostId by viewModel.selectedCommentsPostId.collectAsState()
     val selectedProfileUser by viewModel.selectedProfileUser.collectAsState()
 
+    val showRoyalProfile by viewModel.showRoyalProfile.collectAsState()
+    val monarchProfile by viewModel.viewedMonarchProfile.collectAsState()
+    val viewedMonarchUser by viewModel.viewedMonarchUser.collectAsState()
+    val throneWorthiness by viewModel.throneWorthiness.collectAsState()
+    val monarchTimeline by viewModel.monarchTimeline.collectAsState()
+    val royalDecrees by viewModel.royalDecrees.collectAsState()
+    val royalCouncil by viewModel.royalCouncil.collectAsState()
+    val hallOfMonarchs by viewModel.hallOfMonarchs.collectAsState()
+    val allUsers by viewModel.allUsers.collectAsState()
+
     val showWelcome by viewModel.showDailyWelcome.collectAsState()
     val showExit by viewModel.showExitSummary.collectAsState()
 
@@ -2422,6 +2432,49 @@ fun MainDashboardView(viewModel: AppViewModel, snackbarHostState: SnackbarHostSt
     selectedProfileUser?.let { selectedUser ->
         ProfileDisplayDialog(user = selectedUser, viewModel = viewModel, onClose = { viewModel.closeProfileDialog() })
     }
+
+    if (showRoyalProfile && monarchProfile != null) {
+        val profile = monarchProfile!!
+        val monarchUser = viewedMonarchUser ?: allUsers.firstOrNull { it.id == profile.monarchCitizenId }
+        val userName = monarchUser?.name ?: "The Sovereign"
+        val userTerritory = monarchUser?.territory ?: "Global"
+        val userFlag = monarchUser?.flagEmoji ?: "👑"
+
+        if (profile.title == "King") {
+            KingProfileDialog(
+                profile = profile,
+                worthiness = throneWorthiness,
+                timeline = monarchTimeline,
+                decrees = royalDecrees,
+                council = royalCouncil,
+                userName = userName,
+                userTerritory = userTerritory,
+                userFlag = userFlag,
+                viewModel = viewModel,
+                onClose = { viewModel.dismissRoyalProfile() }
+            )
+        } else {
+            QueenProfileDialog(
+                profile = profile,
+                worthiness = throneWorthiness,
+                timeline = monarchTimeline,
+                decrees = royalDecrees,
+                council = royalCouncil,
+                userName = userName,
+                userTerritory = userTerritory,
+                userFlag = userFlag,
+                viewModel = viewModel,
+                onClose = { viewModel.dismissRoyalProfile() }
+            )
+        }
+    }
+
+    if (hallOfMonarchs.isNotEmpty()) {
+        HallOfMonarchsDialog(
+            monarchs = hallOfMonarchs,
+            onClose = { viewModel.dismissHallOfMonarchs() }
+        )
+    }
 }
 
 @Composable
@@ -2434,6 +2487,30 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
     var editFlagEmoji by remember { mutableStateOf(user.flagEmoji) }
     var postToDelete by remember { mutableStateOf<com.example.data.PostEntity?>(null) }
 
+    val isKingOrQueen = user.currentRank.equals("King", ignoreCase = true) || user.currentRank.equals("Queen", ignoreCase = true)
+    val isCandidate = user.isCandidate
+    val isNobility = !isKingOrQueen && (user.currentRank.equals("Prince", ignoreCase = true) || 
+                     user.currentRank.equals("Princess", ignoreCase = true) || 
+                     user.currentRank.equals("Duke", ignoreCase = true) || 
+                     user.currentRank.equals("Duchess", ignoreCase = true) || 
+                     user.currentRank.contains("Noble", ignoreCase = true))
+
+    // Customize border and background based on royalty
+    val isLight = ThemeState.isLight
+    val borderStroke = when {
+        isKingOrQueen -> BorderStroke(2.5.dp, if (isLight) Color(0xFFB48A10) else Color(0xFFD4AF37))
+        isNobility -> BorderStroke(2.2.dp, if (isLight) Color(0xFF7C3AED) else Color(0xFFA78BFA))
+        isCandidate -> BorderStroke(1.5.dp, if (isLight) Color(0xFF0284C7) else Color(0xFF4FC3F7)) // Cyan Candidate theme
+        else -> BorderStroke(1.dp, MutedSlate.copy(alpha = 0.35f)) // Neutral theme for normal citizen/scholars
+    }
+
+    val cardBg = when {
+        isKingOrQueen -> if (isLight) Color(0xFFFBF8F1) else Color(0xFF0F0E07) // Deep Imperial Black-Gold Hue
+        isNobility -> if (isLight) Color(0xFFFAF5FF) else Color(0xFF130D1E) // Deep Amethyst Velvet
+        isCandidate -> if (isLight) Color(0xFFF0F9FF) else Color(0xFF020E1C) // Deep Cobalt Midnight
+        else -> VelvetCard // Original VelvetCard for standard citizens
+    }
+
     LaunchedEffect(user.id) {
         viewModel.notifyProfileView(user)
     }
@@ -2443,8 +2520,8 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Card(
-            colors = CardDefaults.cardColors(containerColor = VelvetCard),
-            border = BorderStroke(1.5.dp, RegalGold),
+            colors = CardDefaults.cardColors(containerColor = cardBg),
+            border = borderStroke,
             shape = RoundedCornerShape(24.dp),
             modifier = Modifier
                 .widthIn(max = 450.dp)
@@ -2460,35 +2537,91 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                val avatarBorderColor = when {
+                    isKingOrQueen -> if (isLight) Color(0xFFB48A10) else Color(0xFFD4AF37)
+                    isNobility -> if (isLight) Color(0xFF7C3AED) else Color(0xFFA78BFA)
+                    isCandidate -> if (isLight) Color(0xFF0284C7) else Color(0xFF4FC3F7)
+                    else -> MutedSlate.copy(alpha = 0.5f)
+                }
+                val avatarBg = when {
+                    isKingOrQueen -> if (isLight) Color(0xFFF5EFE0) else Color(0xFF1E1705)
+                    isNobility -> if (isLight) Color(0xFFF3E8FF) else Color(0xFF23173A)
+                    isCandidate -> if (isLight) Color(0xFFE0F2FE) else Color(0xFF001F3D)
+                    else -> CharcoalObsidian
+                }
+                val avatarTextColor = when {
+                    isKingOrQueen -> if (isLight) Color(0xFF906D00) else Color(0xFFD4AF37)
+                    isNobility -> if (isLight) Color(0xFF7C3AED) else Color(0xFFC084FC)
+                    isCandidate -> if (isLight) Color(0xFF0284C7) else Color(0xFF4FC3F7)
+                    else -> GhostWhite
+                }
+
                 Box(
-                    modifier = Modifier.size(100.dp),
+                    modifier = Modifier.size(105.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
                             .size(80.dp)
                             .clip(CircleShape)
-                            .background(CharcoalObsidian)
-                            .border(1.5.dp, RegalGold, CircleShape),
+                            .background(avatarBg)
+                            .border(if (isKingOrQueen) 2.5.dp else 1.5.dp, avatarBorderColor, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = if (editName.isNotBlank()) editName.take(1).uppercase() else user.name.take(1).uppercase(),
-                            color = RegalGold,
+                            color = avatarTextColor,
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
+                    // Flag overlay
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .offset(x = (-4).dp, y = (-4).dp)
                             .background(CharcoalObsidian, CircleShape)
-                            .border(1.dp, RegalGold.copy(alpha = 0.5f), CircleShape)
+                            .border(1.dp, avatarBorderColor.copy(alpha = 0.5f), CircleShape)
                             .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Text(editFlagEmoji, fontSize = 18.sp)
+                    }
+
+                    // IMPERIAL BADGE OVERLAY
+                    if (isKingOrQueen) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = 4.dp, y = 4.dp)
+                                .background(if (isLight) Color(0xFFFFF7E3) else Color(0xFF2E1C00), CircleShape)
+                                .border(1.dp, if (isLight) Color(0xFFB48A10) else Color(0xFFD4AF37), CircleShape)
+                                .padding(4.dp)
+                        ) {
+                            Text("👑", fontSize = 14.sp)
+                        }
+                    } else if (isNobility) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = 4.dp, y = 4.dp)
+                                .background(if (isLight) Color(0xFFF5EBFF) else Color(0xFF23143B), CircleShape)
+                                .border(1.dp, if (isLight) Color(0xFF7C3AED) else Color(0xFFA78BFA), CircleShape)
+                                .padding(4.dp)
+                        ) {
+                            Text("🛡️", fontSize = 12.sp)
+                        }
+                    } else if (isCandidate) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = 4.dp, y = 4.dp)
+                                .background(if (isLight) Color(0xFFE6F3FF) else Color(0xFF001F3D), CircleShape)
+                                .border(1.dp, if (isLight) Color(0xFF0284C7) else Color(0xFF4FC3F7), CircleShape)
+                                .padding(4.dp)
+                        ) {
+                            Text("⚡", fontSize = 12.sp)
+                        }
                     }
                 }
 
@@ -2630,18 +2763,44 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
 
                     Spacer(modifier = Modifier.height(8.dp))
 
+                    val badgeBg = when {
+                        isKingOrQueen -> if (isLight) Color(0xFFFDF6E2) else Color(0xFF221901)
+                        isNobility -> if (isLight) Color(0xFFF5EBFF) else Color(0xFF221333)
+                        isCandidate -> if (isLight) Color(0xFFE6F3FF) else Color(0xFF01182D)
+                        else -> MutedSlate.copy(alpha = 0.15f)
+                    }
+                    val badgeBorder = when {
+                        isKingOrQueen -> BorderStroke(1.5.dp, if (isLight) Color(0xFFC5A023) else Color(0xFFD4AF37))
+                        isNobility -> BorderStroke(1.2.dp, if (isLight) Color(0xFFAC94FA) else Color(0xFFA78BFA))
+                        isCandidate -> BorderStroke(1.2.dp, if (isLight) Color(0xFF81CDFF) else Color(0xFF4FC3F7))
+                        else -> BorderStroke(0.5.dp, MutedSlate.copy(alpha = 0.4f))
+                    }
+                    val badgeTextColor = when {
+                        isKingOrQueen -> if (isLight) Color(0xFF906D00) else Color(0xFFD4AF37)
+                        isNobility -> if (isLight) Color(0xFF6D28D9) else Color(0xFFC084FC)
+                        isCandidate -> if (isLight) Color(0xFF0284C7) else Color(0xFF4FC3F7)
+                        else -> GhostWhite
+                    }
+                    val badgeText = when {
+                        isKingOrQueen -> "⚜️ SOVEREIGN MONARCH ⚜️"
+                        isNobility -> "🌌 ROYAL COURT • ${user.currentRank.uppercase()}"
+                        isCandidate -> "⚡ SOVEREIGN CAMPAIGN CANDIDATE"
+                        else -> "${user.currentRank.uppercase()} CITIZEN"
+                    }
+
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = RegalGold.copy(alpha = 0.15f)),
-                        border = BorderStroke(0.5.dp, RegalGold),
+                        colors = CardDefaults.cardColors(containerColor = badgeBg),
+                        border = badgeBorder,
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.padding(vertical = 4.dp)
+                        modifier = Modifier.padding(vertical = 6.dp)
                     ) {
                         Text(
-                            text = "${user.currentRank} Tier",
-                            color = RegalGold,
-                            fontSize = 11.sp,
+                            text = badgeText,
+                            color = badgeTextColor,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
 
@@ -6348,6 +6507,19 @@ fun MissionsTab(viewModel: AppViewModel) {
                             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                         )
 
+                        // Button to view Hall of Monarchs detailed archive
+                        Button(
+                            onClick = { viewModel.loadHallOfMonarchs() },
+                            colors = ButtonDefaults.buttonColors(containerColor = RegalGold.copy(alpha = 0.15f)),
+                            border = BorderStroke(1.dp, RegalGold.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        ) {
+                            Icon(Icons.Default.WorkspacePremium, contentDescription = null, tint = RegalGold, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("VIEW HALL OF MONARCHS ARCHIVE", color = RegalGold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
                         legends.forEach { legend ->
                             Card(
                                 modifier = Modifier
@@ -7118,6 +7290,1094 @@ fun TerritoryFlagsExplorerTab(viewModel: AppViewModel) {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+fun auraColor(auraLevel: String): Color = when (auraLevel) {
+    "Bronze"    -> Color(0xFFCD7F32)
+    "Silver"    -> Color(0xFFC0C0C0)
+    "Golden"    -> Color(0xFFFFD700)
+    "Imperial"  -> Color(0xFF9B59B6)
+    "Legendary" -> Color(0xFFFF4500)
+    else        -> Color.Transparent
+}
+
+fun auraEmoji(auraLevel: String): String = when (auraLevel) {
+    "Bronze"    -> "🥉"
+    "Silver"    -> "🥈"
+    "Golden"    -> "🥇"
+    "Imperial"  -> "👑"
+    "Legendary" -> "⭐"
+    else        -> ""
+}
+
+@Composable
+fun AuraBadge(auraLevel: String, modifier: Modifier = Modifier) {
+    if (auraLevel == "None") return
+    val color = auraColor(auraLevel)
+    Box(
+        modifier = modifier
+            .background(color.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+            .border(1.dp, color, RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(auraEmoji(auraLevel), fontSize = 11.sp)
+            Text(
+                text = "$auraLevel Aura",
+                color = color,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+fun ThroneWorthinessPanel(worthiness: ThroneWorthinessDTO) {
+    val percentage = worthiness.percentage.toInt()
+    val isLight = ThemeState.isLight
+    val cardBg = if (isLight) Color(0xFFFDFBF7) else Color(0xFF16130B)
+    val cardBorder = if (isLight) Color(0xFFC5A023) else RegalGold
+    val textHeading = if (isLight) Color(0xFF906D00) else RegalGold
+    val textBody = if (isLight) Color(0xFF2C2414) else GhostWhite
+    val textSub = if (isLight) Color(0xFF6B5E49) else MutedSlate
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = BorderStroke(1.5.dp, cardBorder),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "⚖️ Throne Worthiness",
+                color = textHeading,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            // Big percentage
+            Text(
+                "$percentage% Merit Score",
+                color = textBody,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            // Overall bar
+            LinearProgressIndicator(
+                progress = { percentage / 100f },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                color = textHeading,
+                trackColor = textHeading.copy(alpha = 0.15f)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            // Component breakdown
+            WorthinessRow("📚 Knowledge Credits", worthiness.knowledgeComponent, "50%", ElectricBlue)
+            WorthinessRow("🏗️ Contribution Credits", worthiness.contributionComponent, "20%", LustrousAmber)
+            WorthinessRow("⭐ Reputation Score", worthiness.reputationComponent, "15%", EmeraldSuccess)
+            WorthinessRow("🤝 Public Support", worthiness.publicSupportComponent, "10%", Color(0xFF64B5F6))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Leadership earned through merit and public trust.",
+                color = textSub,
+                fontSize = 10.sp,
+                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+            )
+        }
+    }
+}
+
+@Composable
+fun WorthinessRow(label: String, value: Float, weight: String, color: Color) {
+    val isLight = ThemeState.isLight
+    val textMain = if (isLight) Color(0xFF2C2414) else GhostWhite
+    val textSub = if (isLight) Color(0xFF6B5E49) else MutedSlate
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(label, color = textMain, fontSize = 11.sp, modifier = Modifier.weight(1f))
+        Text(weight, color = textSub, fontSize = 10.sp)
+        LinearProgressIndicator(
+            progress = { value / 100f },
+            modifier = Modifier.width(60.dp).height(4.dp).clip(RoundedCornerShape(2.dp)),
+            color = color,
+            trackColor = color.copy(alpha = 0.15f)
+        )
+        Text("${value.toInt()}%", color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+fun RoyalTimelinePanel(
+    timeline: List<TimelineMilestone>,
+    selectedRank: String? = null,
+    onRankClick: (String) -> Unit = {}
+) {
+    val isLight = ThemeState.isLight
+    val rankOrder = listOf("Citizen", "Scholar", "Sage", "Noble", "Duke", "Duchess", "Prince", "Princess", "Royal Candidate", "King", "Queen")
+    val rankEmoji = mapOf(
+        "Citizen" to "👤", "Scholar" to "📖", "Sage" to "🔮", "Noble" to "🎖️",
+        "Duke" to "🏰", "Duchess" to "🏰", "Prince" to "⚔️", "Princess" to "💎",
+        "Royal Candidate" to "🗳️", "King" to "👑", "Queen" to "💎"
+    )
+    val cardBg = if (isLight) Color(0xFFF7F3E8) else Color(0xFF11100C)
+    val cardBorder = if (isLight) Color(0xFFC5A023) else RegalGold
+    val textHeading = if (isLight) Color(0xFF906D00) else RegalGold
+    val textMain = if (isLight) Color(0xFF2C2414) else GhostWhite
+    val textSub = if (isLight) Color(0xFF6B5E49) else MutedSlate
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = BorderStroke(1.dp, cardBorder.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("🗺️ Journey to the Crown", color = textHeading, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("Click any stage to inspect authority privileges.", color = textSub, fontSize = 9.sp)
+            Spacer(modifier = Modifier.height(12.dp))
+            val sortedMilestones = timeline.sortedBy { rankOrder.indexOf(it.rank) }
+            sortedMilestones.forEachIndexed { index, milestone ->
+                val isLast = index == sortedMilestones.lastIndex
+                val isHighest = milestone.rank == sortedMilestones.last().rank
+                val isSelected = milestone.rank == selectedRank
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelected) textHeading.copy(alpha = 0.12f) else Color.Transparent)
+                        .clickable { onRankClick(milestone.rank) }
+                        .padding(vertical = 6.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Timeline line + dot
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(32.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(
+                                    if (isHighest) textHeading else textSub.copy(alpha = 0.3f),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(rankEmoji[milestone.rank] ?: "•", fontSize = 12.sp)
+                        }
+                        if (!isLast) {
+                            Box(modifier = Modifier.width(2.dp).height(24.dp).background(textSub.copy(alpha = 0.3f)))
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            milestone.rank,
+                            color = if (isHighest) textHeading else textMain,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            milestone.milestone,
+                            color = textSub,
+                            fontSize = 10.sp
+                        )
+                        if (milestone.date > 0) {
+                            Text(
+                                java.text.SimpleDateFormat("MMM yyyy", java.util.Locale.getDefault())
+                                    .format(java.util.Date(milestone.date)),
+                                color = textSub.copy(alpha = 0.7f),
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RoyalImpactStatsGrid(profile: MonarchProfileDTO) {
+    val isLight = ThemeState.isLight
+    val headingBg = if (isLight) Color(0xFF906D00) else RegalGold
+    val cardBg = if (isLight) Color(0xFFF7F3E8) else CharcoalObsidian
+    val borderCol = if (isLight) Color(0xFFC5A023).copy(alpha = 0.5f) else RegalGold.copy(alpha = 0.3f)
+    val valueCol = if (isLight) Color(0xFF906D00) else RegalGold
+    val labelCol = if (isLight) Color(0xFF6B5E49) else MutedSlate
+
+    val stats = listOf(
+        Triple("Legacy Points", "${profile.legacyPoints}", "🏆"),
+        Triple("Citizens Helped", "${profile.citizensHelped}", "🤝"),
+        Triple("Policies Initiated", "${profile.policiesInitiated}", "📜"),
+        Triple("Territories Influenced", "${profile.territoriesInfluenced}", "🌍"),
+        Triple("Decrees Issued", "${profile.decreesPosted}", "⚖️"),
+        Triple("Approval Rating", "${profile.approvalRating}%", "⭐")
+    )
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text("📊 Royal Impact", color = headingBg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        stats.chunked(2).forEach { rowStats ->
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowStats.forEach { (label, value, emoji) ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = cardBg),
+                        border = BorderStroke(1.dp, borderCol),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(emoji, fontSize = 18.sp)
+                            Text(value, color = valueCol, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(label, color = labelCol, fontSize = 9.sp, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+                if (rowStats.size == 1) Spacer(modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+fun RoyalDecreesSection(
+    decrees: List<RoyalDecreeDTO>,
+    reveredDecrees: Set<String> = emptySet(),
+    onRevere: (String) -> Unit = {}
+) {
+    val isLight = ThemeState.isLight
+    val headingBg = if (isLight) Color(0xFF906D00) else RegalGold
+    val cardBg = if (isLight) Color(0xFFF7F3E8) else Color(0xFF16130B)
+    val cardBorder = if (isLight) Color(0xFFC5A023) else RegalGold
+    val textMain = if (isLight) Color(0xFF2C2414) else GhostWhite
+    val textSub = if (isLight) Color(0xFF6B5E49) else MutedSlate
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text("📜 Royal Decrees", color = headingBg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        if (decrees.isEmpty()) {
+            Text("No decrees issued yet.", color = textSub, fontSize = 11.sp)
+        } else {
+            decrees.take(5).forEach { decree ->
+                val isRevered = decree.id in reveredDecrees
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    border = BorderStroke(1.dp, cardBorder.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(decree.title, color = headingBg, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(EmeraldSuccess.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(decree.status.uppercase(), color = EmeraldSuccess, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .background(if (isRevered) Color(0xFFFFF2F4) else textSub.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                                        .border(0.5.dp, if (isRevered) Color(0xFFF43F5E) else textSub.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                                        .clickable { onRevere(decree.id) }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(if (isRevered) "❤️ REVERED" else "🤍 REVERE", color = if (isRevered) Color(0xFFE11D48) else textSub, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(decree.content, color = textMain.copy(alpha = 0.9f), fontSize = 11.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "⚖️ Royal Seal — ${java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(decree.publishedAt))}",
+                            color = headingBg.copy(alpha = 0.7f),
+                            fontSize = 9.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RoyalCouncilSection(council: List<CouncilMemberDTO>) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isLight = ThemeState.isLight
+    val headingBg = if (isLight) Color(0xFF906D00) else RegalGold
+    val cardBg = if (isLight) Color(0xFFF7F3E8) else CharcoalObsidian
+    val textMain = if (isLight) Color(0xFF2C2414) else GhostWhite
+    val textSub = if (isLight) Color(0xFF6B5E49) else MutedSlate
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text("🏛️ Royal Council", color = headingBg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        if (council.isEmpty()) {
+            Text("No council members appointed yet.", color = textSub, fontSize = 11.sp)
+        } else {
+            council.forEach { member ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .background(cardBg.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .border(0.5.dp, headingBg.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                        .clickable {
+                            android.widget.Toast.makeText(context, "🛡️ Councilor ${member.name} is presiding over the Royal Chambers.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        .padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(auraColor(member.auraLevel).copy(alpha = 0.2f), CircleShape)
+                            .border(1.dp, auraColor(member.auraLevel), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(member.name.take(1).uppercase(), color = headingBg, fontWeight = FontWeight.Bold)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(member.name, color = textMain, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(member.role, color = textSub, fontSize = 10.sp)
+                    }
+                    AuraBadge(member.auraLevel)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RoyalPermissionsPanel() {
+    val isLight = ThemeState.isLight
+    val cardBg = if (isLight) Color(0xFFFAF7F2) else Color(0xFF11100D)
+    val textHeading = if (isLight) Color(0xFF906D00) else RegalGold
+    val textMain = if (isLight) Color(0xFF2C2414) else GhostWhite
+    val textSub = if (isLight) Color(0xFF6B5E49) else MutedSlate
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = BorderStroke(0.5.dp, if (isLight) Color(0xFFDCCFBD) else MutedSlate.copy(alpha = 0.3f)),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text("🔒 Royal Authority Scope", color = textHeading, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            listOf("Initiatives", "Speeches", "Awards", "Council Appointments").forEach {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+                    Text("✅", fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(it, color = textMain, fontSize = 11.sp)
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            listOf("Ban Users", "Delete Posts", "Edit Scores", "Change Elections", "Modify Credits").forEach {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+                    Text("❌", fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(it, color = textSub, fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun KingProfileDialog(
+    profile: MonarchProfileDTO,
+    worthiness: ThroneWorthinessDTO?,
+    timeline: List<TimelineMilestone>,
+    decrees: List<RoyalDecreeDTO>,
+    council: List<CouncilMemberDTO>,
+    userName: String,
+    userTerritory: String,
+    userFlag: String,
+    viewModel: AppViewModel,
+    onClose: () -> Unit
+) {
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = listOf("Overview", "Decrees", "Council", "Timeline", "Legacy")
+
+    var reveredDecrees by remember { mutableStateOf(setOf<String>()) }
+    var selectedMilestoneRank by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val isLight = ThemeState.isLight
+    val dialogBg = if (isLight) Color(0xFFFDFBF7) else Color(0xFF0D0B01)
+    val goldAccentColor = if (isLight) Color(0xFFB48A10) else Color(0xFFD4AF37)
+    val textMain = if (isLight) Color(0xFF2C2414) else GhostWhite
+    val textSub = if (isLight) Color(0xFF6B5E49) else MutedSlate
+    val badgeBg = if (isLight) Color(0xFFFFF7E3) else Color(0xFF2E1C00)
+    val primaryTextGold = if (isLight) Color(0xFF906D00) else Color(0xFFD4AF37)
+    val borderStrokeColor = if (isLight) Color(0xFFC5A023) else Color(0xFFD4AF37)
+
+    val crownGlowColor = if (isLight) Color(0xFFDFBA45).copy(alpha = 0.3f) else Color(0xFFFFEA7A).copy(alpha = 0.25f)
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = dialogBg),
+            border = BorderStroke(2.5.dp, borderStrokeColor),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .widthIn(max = 480.dp)
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.92f)
+                .padding(8.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+
+                // ── IMPERIAL HEADER ──────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = if (isLight) listOf(Color(0xFFFFF9EB), Color(0xFFFDFBF7)) else listOf(Color(0xFF231703), Color(0xFF0D0B01))
+                            )
+                        )
+                        .padding(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .clickable {
+                                    android.widget.Toast.makeText(context, "☀️ His Majesty the King welcomes your presence inside the Chamber.", android.widget.Toast.LENGTH_LONG).show()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(105.dp)
+                                    .background(crownGlowColor, CircleShape)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(88.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isLight) Color(0xFFFAECE1) else Color(0xFF1E1402))
+                                    .border(3.dp, goldAccentColor, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    userName.take(1).uppercase(),
+                                    color = goldAccentColor,
+                                    fontSize = 32.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .offset(y = (-11).dp)
+                            ) {
+                                Text("👑", fontSize = 28.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            "HIS MAJESTY THE KING",
+                            color = primaryTextGold,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp
+                        )
+                        Text(
+                            userName,
+                            color = textMain,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Text(userFlag, fontSize = 14.sp)
+                            Text(userTerritory, color = textSub, fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        val reignDays = ((System.currentTimeMillis() - profile.reignStartDate) / 86400000).toInt()
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$reignDays", color = goldAccentColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Days Reigning", color = textSub, fontSize = 9.sp)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${profile.approvalRating}%", color = EmeraldSuccess, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Approval", color = textSub, fontSize = 9.sp)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${profile.legacyPoints}", color = LustrousAmber, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Legacy Pts", color = textSub, fontSize = 9.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(badgeBg, RoundedCornerShape(8.dp))
+                                .border(1.2.dp, goldAccentColor, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    android.widget.Toast.makeText(context, "☀️ Golden Sun Aura represents ultimate sovereign light, casting prosperity across all realms.", android.widget.Toast.LENGTH_LONG).show()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 5.dp)
+                        ) {
+                            Text("☀️ Golden Sun Aura — Imperial Crown", color = primaryTextGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // ── GOVERNANCE TABS ───────────────────────────────────────
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = dialogBg,
+                    contentColor = goldAccentColor,
+                    edgePadding = 8.dp
+                ) {
+                    tabs.forEachIndexed { index, label ->
+                        val tabEmoji = when (index) {
+                            0 -> "📊"
+                            1 -> "📜"
+                            2 -> "🏛️"
+                            3 -> "🗺️"
+                            4 -> "🏆"
+                            else -> "✨"
+                        }
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(tabEmoji, fontSize = 11.sp)
+                                    Text(
+                                        label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selectedTab == index) goldAccentColor else textSub
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+
+                // ── TAB CONTENT ───────────────────────────────────────────
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp)
+                ) {
+                    when (selectedTab) {
+                        0 -> { // Overview
+                            RoyalImpactStatsGrid(profile)
+                            Divider(color = goldAccentColor.copy(alpha = 0.15f), modifier = Modifier.padding(vertical = 8.dp))
+                            if (worthiness != null) {
+                                ThroneWorthinessPanel(worthiness)
+                                Divider(color = goldAccentColor.copy(alpha = 0.15f), modifier = Modifier.padding(vertical = 8.dp))
+                            }
+                            RoyalPermissionsPanel()
+                        }
+                        1 -> RoyalDecreesSection(
+                            decrees = decrees,
+                            reveredDecrees = reveredDecrees,
+                            onRevere = { reqId ->
+                                reveredDecrees = if (reqId in reveredDecrees) reveredDecrees - reqId else reveredDecrees + reqId
+                                if (reqId in reveredDecrees) {
+                                    android.widget.Toast.makeText(context, "❤️ You have sworn fealty to this royal decree!", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+                        2 -> RoyalCouncilSection(council)
+                        3 -> { // Timeline
+                            val milestoneDetails = mapOf(
+                                "Citizen" to "The foundation of OneEarth. Earn credits to rise in rank.",
+                                "Scholar" to "Academics and deep thinkers. Authorized to submit long-form articles.",
+                                "Sage" to "Masters of wisdom. Trusted review authorities of the library.",
+                                "Noble" to "Distinguished service leaders with local governance authority.",
+                                "Duke" to "High-level administrative rulers overseeing entire continental sectors.",
+                                "Duchess" to "High-level administrative rulers overseeing entire continental sectors.",
+                                "Prince" to "Imperial heirs of the sovereign. Direct authority below the throne.",
+                                "Princess" to "Imperial heirs of the sovereign. Direct authority below the throne.",
+                                "Royal Candidate" to "Senior leaders elected to compete in the democratic sovereign elections.",
+                                "King" to "His Majesty. Supreme Ruler of the United realities.",
+                                "Queen" to "Her Majesty. Supreme Ruler of the United realities."
+                            )
+
+                            if (selectedMilestoneRank != null) {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = if (isLight) Color(0xFFFAF2E4) else Color(0xFF261B01)),
+                                    border = BorderStroke(1.dp, borderStrokeColor),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(bottom = 12.dp).fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                            Text(
+                                                "🛡️ ${selectedMilestoneRank} Rank Scope",
+                                                color = primaryTextGold,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            IconButton(
+                                                onClick = { selectedMilestoneRank = null },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Text("×", color = textSub, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            milestoneDetails[selectedMilestoneRank] ?: "Standard rank with active service records.",
+                                            color = textMain,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (timeline.isNotEmpty()) {
+                                RoyalTimelinePanel(
+                                    timeline = timeline,
+                                    selectedRank = selectedMilestoneRank,
+                                    onRankClick = { clickedRank ->
+                                        selectedMilestoneRank = clickedRank
+                                    }
+                                )
+                            } else {
+                                Text("Timeline loading...", color = textSub, fontSize = 11.sp)
+                            }
+                        }
+                        4 -> { // Legacy
+                            Text("🏛️ Hall of Monarchs", color = goldAccentColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "The current monarch's achievements will be permanently enshrined in the Hall of Monarchs upon completion.",
+                                color = textSub,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+
+                // ── CLOSE BUTTON ──────────────────────────────────────────
+                Button(
+                    onClick = onClose,
+                    colors = ButtonDefaults.buttonColors(containerColor = goldAccentColor),
+                    shape = RoundedCornerShape(0.dp, 0.dp, 20.dp, 20.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text("CLOSE IMPERIAL CHAMBER", color = if (isLight) Color.White else Color(0xFF0D0B01), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun QueenProfileDialog(
+    profile: MonarchProfileDTO,
+    worthiness: ThroneWorthinessDTO?,
+    timeline: List<TimelineMilestone>,
+    decrees: List<RoyalDecreeDTO>,
+    council: List<CouncilMemberDTO>,
+    userName: String,
+    userTerritory: String,
+    userFlag: String,
+    viewModel: AppViewModel,
+    onClose: () -> Unit
+) {
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = listOf("Overview", "Decrees", "Council", "Timeline", "Legacy")
+
+    var reveredDecrees by remember { mutableStateOf(setOf<String>()) }
+    var selectedMilestoneRank by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val isLight = ThemeState.isLight
+    val dialogBg = if (isLight) Color(0xFFF6FAFD) else Color(0xFF000D1A)
+    val royalBlueColor = if (isLight) Color(0xFF0288D1) else Color(0xFF4FC3F7)
+    val textMain = if (isLight) Color(0xFF102533) else GhostWhite
+    val textSub = if (isLight) Color(0xFF50687E) else MutedSlate
+    val badgeBg = if (isLight) Color(0xFFE8F6FF) else Color(0xFF001931)
+    val primaryTextBlue = if (isLight) Color(0xFF01579B) else Color(0xFF4FC3F7)
+    val borderStrokeColor = if (isLight) Color(0xFF4FC3F7) else Color(0xFF4FC3F7)
+
+    val crownGlowColor = if (isLight) Color(0xFFB3E5FC).copy(alpha = 0.45f) else Color(0xFF4FC3F7).copy(alpha = 0.25f)
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = dialogBg),
+            border = BorderStroke(2.5.dp, borderStrokeColor),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .widthIn(max = 480.dp)
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.92f)
+                .padding(8.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+
+                // ── IMPERIAL HEADER ──────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = if (isLight) listOf(Color(0xFFE0F2F1), Color(0xFFF6FAFD)) else listOf(Color(0xFF001F3D), Color(0xFF000D1A))
+                            )
+                        )
+                        .padding(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .clickable {
+                                    android.widget.Toast.makeText(context, "💎 Her Majesty the Queen welcomes your presence inside the Chamber.", android.widget.Toast.LENGTH_LONG).show()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(105.dp)
+                                    .background(crownGlowColor, CircleShape)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(88.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isLight) Color(0xFFE1F5FE) else Color(0xFF001428))
+                                    .border(3.dp, royalBlueColor, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    userName.take(1).uppercase(),
+                                    color = royalBlueColor,
+                                    fontSize = 32.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .offset(y = (-11).dp)
+                            ) {
+                                Text("👑", fontSize = 28.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            "HER MAJESTY THE QUEEN",
+                            color = primaryTextBlue,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp
+                        )
+                        Text(
+                            userName,
+                            color = textMain,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Text(userFlag, fontSize = 14.sp)
+                            Text(userTerritory, color = textSub, fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        val reignDays = ((System.currentTimeMillis() - profile.reignStartDate) / 86400000).toInt()
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$reignDays", color = royalBlueColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Days Reigning", color = textSub, fontSize = 9.sp)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${profile.approvalRating}%", color = EmeraldSuccess, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Approval", color = textSub, fontSize = 9.sp)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${profile.legacyPoints}", color = LustrousAmber, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Legacy Pts", color = textSub, fontSize = 9.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(badgeBg, RoundedCornerShape(8.dp))
+                                .border(1.2.dp, royalBlueColor, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    android.widget.Toast.makeText(context, "🌙 Diamond Moon Aura represents ultimate serene wisdom, guarding prosperity across all elements.", android.widget.Toast.LENGTH_LONG).show()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 5.dp)
+                        ) {
+                            Text("🌙 Diamond Moon Aura — Royal Crown", color = royalBlueColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = dialogBg,
+                    contentColor = royalBlueColor,
+                    edgePadding = 8.dp
+                ) {
+                    tabs.forEachIndexed { index, label ->
+                        val tabEmoji = when (index) {
+                            0 -> "📊"
+                            1 -> "📜"
+                            2 -> "🏛️"
+                            3 -> "🗺️"
+                            4 -> "🏆"
+                            else -> "✨"
+                        }
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(tabEmoji, fontSize = 11.sp)
+                                    Text(
+                                        label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selectedTab == index) royalBlueColor else textSub
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp)
+                ) {
+                    when (selectedTab) {
+                        0 -> { // Overview
+                            RoyalImpactStatsGrid(profile)
+                            Divider(color = royalBlueColor.copy(alpha = 0.15f), modifier = Modifier.padding(vertical = 8.dp))
+                            if (worthiness != null) {
+                                ThroneWorthinessPanel(worthiness)
+                                Divider(color = royalBlueColor.copy(alpha = 0.15f), modifier = Modifier.padding(vertical = 8.dp))
+                            }
+                            RoyalPermissionsPanel()
+                        }
+                        1 -> RoyalDecreesSection(
+                            decrees = decrees,
+                            reveredDecrees = reveredDecrees,
+                            onRevere = { reqId ->
+                                reveredDecrees = if (reqId in reveredDecrees) reveredDecrees - reqId else reveredDecrees + reqId
+                                if (reqId in reveredDecrees) {
+                                    android.widget.Toast.makeText(context, "❤️ You have sworn fealty to this royal decree!", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+                        2 -> RoyalCouncilSection(council)
+                        3 -> { // Timeline
+                            val milestoneDetails = mapOf(
+                                "Citizen" to "The foundation of OneEarth. Earn credits to rise in rank.",
+                                "Scholar" to "Academics and deep thinkers. Authorized to submit long-form articles.",
+                                "Sage" to "Masters of wisdom. Trusted review authorities of the library.",
+                                "Noble" to "Distinguished service leaders with local governance authority.",
+                                "Duke" to "High-level administrative rulers overseeing entire continental sectors.",
+                                "Duchess" to "High-level administrative rulers overseeing entire continental sectors.",
+                                "Prince" to "Imperial heirs of the sovereign. Direct authority below the throne.",
+                                "Princess" to "Imperial heirs of the sovereign. Direct authority below the throne.",
+                                "Royal Candidate" to "Senior leaders elected to compete in the democratic sovereign elections.",
+                                "King" to "His Majesty. Supreme Ruler of the United realities.",
+                                "Queen" to "Her Majesty. Supreme Ruler of the United realities."
+                            )
+
+                            if (selectedMilestoneRank != null) {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = if (isLight) Color(0xFFE1F5FE) else Color(0xFF001A33)),
+                                    border = BorderStroke(1.dp, borderStrokeColor),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(bottom = 12.dp).fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                            Text(
+                                                "🛡️ ${selectedMilestoneRank} Rank Scope",
+                                                color = royalBlueColor,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            IconButton(
+                                                onClick = { selectedMilestoneRank = null },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Text("×", color = textSub, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            milestoneDetails[selectedMilestoneRank] ?: "Standard rank with active service records.",
+                                            color = textMain,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (timeline.isNotEmpty()) {
+                                RoyalTimelinePanel(
+                                    timeline = timeline,
+                                    selectedRank = selectedMilestoneRank,
+                                    onRankClick = { clickedRank ->
+                                        selectedMilestoneRank = clickedRank
+                                    }
+                                )
+                            } else {
+                                Text("Timeline loading...", color = textSub, fontSize = 11.sp)
+                            }
+                        }
+                        4 -> { // Legacy
+                            Text("🏛️ Hall of Monarchs", color = royalBlueColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "The current monarch's achievements will be permanently enshrined in the Hall of Monarchs upon completion.",
+                                color = textSub,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = onClose,
+                    colors = ButtonDefaults.buttonColors(containerColor = royalBlueColor),
+                    shape = RoundedCornerShape(0.dp, 0.dp, 20.dp, 20.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text("CLOSE ROYAL GARDEN", color = if (isLight) Color.White else Color(0xFF000D1A), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HallOfMonarchsDialog(
+    monarchs: List<HallOfMonarchEntry>,
+    onClose: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0A12)),
+            border = BorderStroke(2.dp, RegalGold),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(0.95f).fillMaxHeight(0.88f).padding(8.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Header
+                Box(
+                    modifier = Modifier.fillMaxWidth().background(Color(0xFF1A1000)).padding(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("🏛️", fontSize = 32.sp)
+                        Text("Hall of Monarchs", color = RegalGold, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text("Permanent Archive of Sovereign Rulers", color = MutedSlate, fontSize = 11.sp)
+                    }
+                }
+                // Monarch list
+                Column(
+                    modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp)
+                ) {
+                    if (monarchs.isEmpty()) {
+                        Text("The Hall of Monarchs awaits its first ruler.", color = MutedSlate, fontSize = 12.sp)
+                    } else {
+                        monarchs.forEachIndexed { index, monarch ->
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1000)),
+                                border = BorderStroke(1.dp, RegalGold.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .background(RegalGold.copy(alpha = 0.15f), CircleShape)
+                                                .border(1.dp, RegalGold, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(monarch.name.take(1).uppercase(), color = RegalGold, fontWeight = FontWeight.Bold)
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                "${if (monarch.title == "King") "👑" else "💎"} ${monarch.title} ${monarch.name}",
+                                                color = RegalGold,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text("${monarch.territory}", color = MutedSlate, fontSize = 10.sp)
+                                        }
+                                        // Legacy badge
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text("${monarch.legacyPoints}", color = LustrousAmber, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                            Text("Legacy Pts", color = MutedSlate, fontSize = 8.sp)
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        val startFmt = java.text.SimpleDateFormat("MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(monarch.reignStartDate))
+                                        val endFmt = monarch.reignEndDate?.let {
+                                            java.text.SimpleDateFormat("MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(it))
+                                        } ?: "Present"
+                                        Text("Reign: $startFmt – $endFmt", color = GhostWhite.copy(alpha = 0.7f), fontSize = 10.sp)
+                                        Text("${monarch.approvalRating}% Approval", color = EmeraldSuccess, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Button(
+                    onClick = onClose,
+                    colors = ButtonDefaults.buttonColors(containerColor = RegalGold),
+                    shape = RoundedCornerShape(0.dp, 0.dp, 20.dp, 20.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text("CLOSE HALL OF MONARCHS", color = Color(0xFF0D0B00), fontWeight = FontWeight.Bold)
                 }
             }
         }

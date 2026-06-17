@@ -68,7 +68,7 @@ class MockCollection {
 
   where(field: string, op: string, val: any) {
     const collections = this.mockDb._data[this.collectionName] || {};
-    const filteredDocs: any[] = [];
+    let filteredDocs: any[] = [];
     for (const [id, value] of Object.entries(collections)) {
       const valObj = value as any;
       if (op === '==' && valObj[field] === val) {
@@ -80,7 +80,20 @@ class MockCollection {
       }
     }
 
-    return {
+    const queryInstance = {
+      where: (f: string, o: string, v: any) => {
+        filteredDocs = filteredDocs.filter(doc => {
+          const data = doc.data();
+          if (o === '==') {
+            return data[f] === v;
+          }
+          return true;
+        });
+        return queryInstance;
+      },
+      limit: (n: number) => {
+        return queryInstance;
+      },
       get: async () => {
         const sliced = filteredDocs.slice(0, this.limitVal);
         return {
@@ -89,6 +102,8 @@ class MockCollection {
         };
       }
     };
+
+    return queryInstance;
   }
 
   async get() {
@@ -328,7 +343,8 @@ export const connectDatabase = async (): Promise<void> => {
 
 export const getFirestoreDb = (): any => {
   if (!db) {
-    if (isMockDb) {
+    if (isMockDb || process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined) {
+      isMockDb = true;
       db = new MockFirestore();
     } else {
       db = new MongoFirestore();

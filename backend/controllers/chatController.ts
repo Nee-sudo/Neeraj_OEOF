@@ -181,7 +181,8 @@ export const sendMessage = async (req: Request, res: Response) => {
           newMessage.senderId,
           "message",
           `New message from ${newMessage.senderName}`,
-          newMessage.messageText
+          newMessage.messageText,
+          Number(roomId)
         );
       }
     } catch (notifErr) {

@@ -13,8 +13,16 @@ import postRoutes from './routes/posts';
 import chatRoutes from './routes/chats';
 import notificationRoutes from './routes/notifications';
 
+// New Election Routes
+import electionRoutes from './routes/elections';
+import votingRoutes from './routes/voting';
+import monarchRoutes from './routes/monarchs';
+import territoryRoutes from './routes/territories';
+import royalProfileRoutes from './routes/royalProfiles';
+
 // Seed Initial Data check
 import { seedDatabaseIfEmpty } from './seed';
+import { runMigrations } from './migrations/runMigrations';
 
 dotenv.config();
 
@@ -52,6 +60,13 @@ app.use('/api/posts', verifyToken, postRoutes);
 app.use('/api/chat', verifyToken, chatRoutes);
 app.use('/api/notifications', verifyToken, notificationRoutes);
 
+// Election system routes mapping with Bearer token authorization checks
+app.use('/api/elections', verifyToken, electionRoutes);
+app.use('/api/voting', verifyToken, votingRoutes);
+app.use('/api/monarchs', verifyToken, monarchRoutes);
+app.use('/api/territories', verifyToken, territoryRoutes);
+app.use('/api/royal-profiles', verifyToken, royalProfileRoutes);
+
 // Socket Handler setup
 setupSocketHandler(io);
 
@@ -66,6 +81,9 @@ const startServer = async () => {
   try {
     // 1. Core database lock
     await connectDatabase();
+    
+    // Run newly configured database migrations and indexes setups
+    await runMigrations();
     
     // 2. Perform seed checks to initialize dummy avatars
     await seedDatabaseIfEmpty();
