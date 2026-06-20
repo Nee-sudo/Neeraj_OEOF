@@ -932,7 +932,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                         dob = "1995-01-01",
                         territory = "Realm",
                         flagEmoji = "👑",
-                        gender = "Male",
+                        gender = if (monarchData.currentRank.equals("Queen", ignoreCase = true)) "Female" else "Male",
                         currentRank = monarchData.currentRank,
                         bio = monarchData.bio,
                         profilePhoto = monarchData.profilePhoto,
@@ -1019,31 +1019,60 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
 
     fun showProfileForUser(userId: String) {
         viewModelScope.launch {
+            val lUsers = leaderboardUsers.value
+            val isQueenId = userId.equals("default_queen", ignoreCase = true) ||
+                            userId.contains("queen", ignoreCase = true) ||
+                            userId.equals(currentQueen.value?.id, ignoreCase = true) ||
+                            lUsers.any { it.id == userId && (it.gender.equals("Female", ignoreCase = true) || it.currentRank.equals("Queen", ignoreCase = true)) }
+
+            val isKingId = userId.equals("default_king", ignoreCase = true) ||
+                           userId.contains("king", ignoreCase = true) ||
+                           userId.equals(currentKing.value?.id, ignoreCase = true) ||
+                           lUsers.any { it.id == userId && (it.gender.equals("Male", ignoreCase = true) || it.currentRank.equals("King", ignoreCase = true)) }
+
             val user = userDao.getUserById(userId) ?: UserEntity(
                 id = userId,
-                name = userId.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } },
-                username = "@$userId",
-                email = "$userId@oneearth.io",
-                dob = "1995-01-01",
+                name = if (userId.equals("default_queen", ignoreCase = true)) "Sovereign Queen Elena"
+                       else if (userId.equals("default_king", ignoreCase = true)) "Dr. Linus Vance"
+                       else userId.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } },
+                username = if (userId.equals("default_queen", ignoreCase = true)) "@elena"
+                           else if (userId.equals("default_king", ignoreCase = true)) "@linus_v"
+                           else "@$userId",
+                email = if (userId.equals("default_queen", ignoreCase = true)) "elena@oneearth.io"
+                        else if (userId.equals("default_king", ignoreCase = true)) "linus@oneearth.io"
+                        else "$userId@oneearth.io",
+                dob = if (userId.equals("default_queen", ignoreCase = true)) "1994-04-12"
+                      else if (userId.equals("default_king", ignoreCase = true)) "1992-08-21"
+                      else "1995-01-01",
                 territory = "Global",
-                flagEmoji = "🌍",
-                currentRank = "Noble Member",
-                knowledgeCredits = 120,
-                contributionCredits = 65,
-                reputationScore = 95,
-                bio = "Co-building a beautiful world with high-quality, constructive contributions."
+                flagEmoji = if (userId.equals("default_queen", ignoreCase = true)) "💎"
+                            else if (userId.equals("default_king", ignoreCase = true)) "👑"
+                            else "🌍",
+                gender = if (isQueenId) "Female" else "Male",
+                currentRank = if (isQueenId) "Queen" else if (isKingId) "King" else "Noble Member",
+                knowledgeCredits = if (userId.equals("default_queen", ignoreCase = true)) 1500
+                                   else if (userId.equals("default_king", ignoreCase = true)) 1800
+                                   else 120,
+                contributionCredits = if (userId.equals("default_queen", ignoreCase = true)) 950
+                                      else if (userId.equals("default_king", ignoreCase = true)) 1200
+                                      else 65,
+                reputationScore = 98,
+                bio = if (userId.equals("default_queen", ignoreCase = true)) "Supreme Diplomat and elected Queen of the united realities."
+                      else if (userId.equals("default_king", ignoreCase = true)) "Grand Educator and democratically elected King of the united realities."
+                      else "Co-building a beautiful world with high-quality, constructive contributions."
             )
 
-            val lUsers = leaderboardUsers.value
             val isLeaderboardKing = lUsers.firstOrNull { it.gender.equals("Male", ignoreCase = true) }?.id == user.id || 
-                         (lUsers.isNotEmpty() && lUsers.getOrNull(0)?.id == user.id)
+                         (lUsers.isNotEmpty() && lUsers.getOrNull(0)?.id == user.id && user.gender.equals("Male", ignoreCase = true))
             val isLeaderboardQueen = lUsers.firstOrNull { it.gender.equals("Female", ignoreCase = true) && it.id != lUsers.firstOrNull { m -> m.gender.equals("Male", ignoreCase = true) }?.id }?.id == user.id ||
-                          (lUsers.size > 1 && lUsers.getOrNull(1)?.id == user.id)
+                          (lUsers.size > 1 && lUsers.getOrNull(1)?.id == user.id && user.gender.equals("Female", ignoreCase = true))
 
             val isMonarch = user.currentRank.equals("King", ignoreCase = true) || 
                             user.currentRank.equals("Queen", ignoreCase = true) ||
                             isLeaderboardKing || 
-                            isLeaderboardQueen
+                            isLeaderboardQueen ||
+                            isQueenId ||
+                            isKingId
 
             if (isMonarch) {
                 // Ensure user in local DB so other parts can reference it
@@ -1070,6 +1099,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                     "Arjun Patel" -> "gandhi_avatar"
                     "Clara Dupont" -> "clara_nobel"
                     "Kofi Mensah" -> "kenya_leader"
+                    "Sovereign Queen Elena" -> "default_queen"
+                    "Dr. Linus Vance" -> "default_king"
                     else -> name.lowercase().replace(" ", "_")
                 }
             }
@@ -1078,6 +1109,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             if (existing != null) {
                 showProfileForUser(existing.id)
             } else {
+                val isFemale = rank.equals("Queen", ignoreCase = true) ||
+                               rank.equals("Duchess", ignoreCase = true) ||
+                               rank.equals("Princess", ignoreCase = true) ||
+                               name.contains("Queen", ignoreCase = true) ||
+                               name.contains("Elena", ignoreCase = true) ||
+                               name.contains("Clara", ignoreCase = true) ||
+                               name.contains("Keren", ignoreCase = true)
                 val tempUser = UserEntity(
                     id = id,
                     name = name,
@@ -1087,10 +1125,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                     territory = territory,
                     flagEmoji = flag,
                     currentRank = rank,
-                    knowledgeCredits = 110,
-                    contributionCredits = 80,
+                    gender = if (isFemale) "Female" else "Male",
+                    knowledgeCredits = if (id == "default_queen") 1500 else if (id == "default_king") 1800 else 110,
+                    contributionCredits = if (id == "default_queen") 950 else if (id == "default_king") 1200 else 80,
                     reputationScore = 97,
-                    bio = "Proud citizen of our digital Empire. Active in $territory."
+                    bio = if (id == "default_queen") "Supreme Diplomat and elected Queen of the united realities."
+                          else if (id == "default_king") "Grand Educator and democratically elected King of the united realities."
+                          else "Proud citizen of our digital Empire. Active in $territory."
                 )
                 userDao.insertUser(tempUser)
                 showProfileForUser(tempUser.id)
@@ -2261,6 +2302,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                     TimelineMilestone(title, "Formally crowned Sovereign of the United Earth Realities", System.currentTimeMillis() - 15 * 24 * 3600 * 1000L)
                 )
 
+                val calculatedLegacyPoints = if ((dbUser?.knowledgeCredits ?: 0) > 0 || (dbUser?.contributionCredits ?: 0) > 0) {
+                    Math.max(1200, (dbUser?.knowledgeCredits ?: 0) * 2 + (dbUser?.contributionCredits ?: 0))
+                } else {
+                    if (isQueen) 1500 else 1800
+                }
+
                 val fallbackProfile = MonarchProfileDTO(
                     monarchCitizenId = monarchId,
                     title = title,
@@ -2268,7 +2315,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                     reignEndDate = null,
                     territoryId = dbUser?.territory ?: "Global",
                     throneWorthiness = fallbackWorthiness,
-                    legacyPoints = 1450,
+                    legacyPoints = calculatedLegacyPoints,
                     citizensHelped = 412,
                     policiesInitiated = 14,
                     territoriesInfluenced = 6,

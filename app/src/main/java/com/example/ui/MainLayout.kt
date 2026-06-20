@@ -5790,15 +5790,53 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // King and Queen highlights - Using authoritative backend flows with local leaderboard fallback
-                    val kingUser = currentKing
-                        ?: leaderboardUsers.firstOrNull { it.currentRank.equals("King", ignoreCase = true) }
+                    val kingUser = currentKing?.takeIf { it.gender.equals("Male", ignoreCase = true) }
+                        ?: leaderboardUsers.firstOrNull { it.currentRank.equals("King", ignoreCase = true) && it.gender.equals("Male", ignoreCase = true) }
                         ?: leaderboardUsers.firstOrNull { it.gender.equals("Male", ignoreCase = true) }
-                        ?: leaderboardUsers.getOrNull(0)
+                        ?: (leaderboardUsers.firstOrNull { it.gender.equals("Male", ignoreCase = true) }?.copy(
+                            id = "default_king",
+                            name = "Dr. Linus Vance",
+                            gender = "Male",
+                            currentRank = "King",
+                            flagEmoji = "👑"
+                        ) ?: UserEntity(
+                            id = "default_king",
+                            name = "Dr. Linus Vance",
+                            username = "@linus_v",
+                            email = "linus@oneearth.io",
+                            dob = "1992-08-21",
+                            territory = "Global",
+                            flagEmoji = "👑",
+                            gender = "Male",
+                            currentRank = "King",
+                            knowledgeCredits = 1800,
+                            contributionCredits = 1200,
+                            bio = "Grand Educator and democratically elected King of the United realities."
+                        ))
 
-                    val queenUser = currentQueen
-                        ?: leaderboardUsers.firstOrNull { it.currentRank.equals("Queen", ignoreCase = true) && it.id != kingUser?.id }
+                    val queenUser = currentQueen?.takeIf { it.gender.equals("Female", ignoreCase = true) }
+                        ?: leaderboardUsers.firstOrNull { it.currentRank.equals("Queen", ignoreCase = true) && it.gender.equals("Female", ignoreCase = true) }
                         ?: leaderboardUsers.firstOrNull { it.gender.equals("Female", ignoreCase = true) && it.id != kingUser?.id }
-                        ?: leaderboardUsers.getOrNull(1)
+                        ?: (leaderboardUsers.firstOrNull { it.gender.equals("Female", ignoreCase = true) && it.id != kingUser?.id }?.copy(
+                            id = "default_queen",
+                            name = "Sovereign Queen Elena",
+                            gender = "Female",
+                            currentRank = "Queen",
+                            flagEmoji = "💎"
+                        ) ?: UserEntity(
+                            id = "default_queen",
+                            name = "Sovereign Queen Elena",
+                            username = "@elena",
+                            email = "elena@oneearth.io",
+                            dob = "1994-04-12",
+                            territory = "Global",
+                            flagEmoji = "💎",
+                            gender = "Female",
+                            currentRank = "Queen",
+                            knowledgeCredits = 1500,
+                            contributionCredits = 950,
+                            bio = "Supreme Diplomat and elected Queen of the united realm."
+                        ))
 
                     // Defensive logging to trace rendering stability across devices
                     LaunchedEffect(kingUser, queenUser) {

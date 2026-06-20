@@ -29,8 +29,18 @@ export class MonarchProfileService {
       
       // Automatically recalculate throne worthiness to keep up to date
       const worthiness = this.calculateThroneWorthiness(user);
+      const isQueen = user.currentRank === 'Queen' || (user.gender && user.gender.toLowerCase() === 'female');
+      const crownType = isQueen ? 'Royal Diamond' : 'Imperial Gold';
+      const auraType = isQueen ? 'Diamond Moon' : 'Golden Sun';
+      const calculatedPoints = user.legacyPoints || profile.legacyPoints || Math.max(1200, (user.knowledgeCredits || 0) * 2 + (user.contributionCredits || 0));
+
       const updatedProfile: IMonarchProfile = {
         ...profile,
+        title: isQueen ? 'Queen' : 'King',
+        crownType,
+        auraType,
+        profileFrame: crownType === 'Imperial Gold' ? 'Imperial Gold Frame' : 'Royal Diamond Frame',
+        legacyPoints: calculatedPoints,
         throneWorthiness: {
           percentage: worthiness.percentage,
           knowledgeComponent: worthiness.components.knowledge,
@@ -109,7 +119,7 @@ export class MonarchProfileService {
         reputationComponent: worthiness.components.reputation,
         publicSupportComponent: worthiness.components.support
       },
-      legacyPoints: user.legacyPoints || 0,
+      legacyPoints: user.legacyPoints || Math.max(1200, (user.knowledgeCredits || 0) * 2 + (user.contributionCredits || 0)),
       citizensHelped: Math.round((user.contributionCredits || 0) * 1.5),
       policiesInitiated: 0,
       territoriesInfluenced: 1,
