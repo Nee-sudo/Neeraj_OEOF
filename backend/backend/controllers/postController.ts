@@ -85,7 +85,7 @@ export function normalizeBackendPost(raw: any): IPost {
   const reactedHelpfulUsers = raw.reactedHelpfulUsers || raw.reacted_helpful_users || "";
   const reactedInspiringUsers = raw.reactedInspiringUsers || raw.reacted_inspiring_users || "";
 
-  return {
+  const returnedPost: IPost = {
     id: cleanId,
     authorId,
     authorName,
@@ -103,6 +103,12 @@ export function normalizeBackendPost(raw: any): IPost {
     reactedHelpfulUsers,
     reactedInspiringUsers
   };
+
+  if (raw.royalSignature) {
+    returnedPost.royalSignature = raw.royalSignature;
+  }
+
+  return returnedPost;
 }
 
 export const getPosts = async (req: Request, res: Response) => {
@@ -150,6 +156,22 @@ export const createPost = async (req: Request, res: Response) => {
       reactedHelpfulUsers: "",
       reactedInspiringUsers: ""
     };
+
+    // Autofill royal signature for valid Monarch authors
+    if (newPost.authorId && newPost.authorId !== "anonymous") {
+      const userSnap = await db.collection('users').doc(newPost.authorId).get();
+      if (userSnap.exists) {
+        const userData = userSnap.data();
+        const isMonarch = userData?.currentRank === 'King' || userData?.currentRank === 'Queen' || userData?.royalTitle === 'King' || userData?.royalTitle === 'Queen';
+        if (isMonarch && userData?.royalSignatureEnabled !== false) {
+          newPost.royalSignature = {
+            monarchTitle: userData.currentRank || userData.royalTitle || "Monarch",
+            monarchName: userData.name || "Sovereign",
+            signedAt: Date.now()
+          };
+        }
+      }
+    }
 
     // Store in collection using string of sequential ID as doc key
     await db.collection('posts').doc(String(nextId)).set(newPost);

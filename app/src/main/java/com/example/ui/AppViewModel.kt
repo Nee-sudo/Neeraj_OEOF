@@ -121,6 +121,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
     val leaderboardUsers: StateFlow<List<UserEntity>> = userDao.getLeaderboardUsersFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val _currentKing = MutableStateFlow<UserEntity?>(null)
+    val currentKing: StateFlow<UserEntity?> = _currentKing.asStateFlow()
+
+    private val _currentQueen = MutableStateFlow<UserEntity?>(null)
+    val currentQueen: StateFlow<UserEntity?> = _currentQueen.asStateFlow()
+
     // All registered users except "me" for Find Friends
     val allFriends: StateFlow<List<UserEntity>> = userDao.getAllFriendsFlow()
         .combine(currentUserFlow) { friends, me ->
@@ -195,6 +201,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
 
     private val _activeNotification = MutableStateFlow<InAppNotification?>(null)
     val activeNotification: StateFlow<InAppNotification?> = _activeNotification.asStateFlow()
+
+    private var lastMonarchFetchTime: Long = 0L
 
     val showNotificationsDialogFlow = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
 
@@ -476,6 +484,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             val loggedInUser = userDao.getUserById("me")
             if (loggedInUser != null) {
                 ApiClient.authToken = loggedInUser.token
+                
+                // CRITICAL BUG FIX: Fetch current monarchs IMMEDIATELY on login
+                // This ensures the state flows are populated BEFORE the UI renders
+                android.util.Log.i("MonarchSync", "📲 [LOGIN] User logged in, fetching current monarchs immediately...")
+                fetchCurrentMonarchs()
+                
                 if (loggedInUser.onboardingCompleted && loggedInUser.citizenOathAccepted) {
                     _currentScreen.value = Screen.MainDashboard
                 } else if (!loggedInUser.onboardingCompleted) {
@@ -526,10 +540,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                         failedCount = 0
                         if (!wasConnected && _isBackendConnected.value) {
                             _toastMessage.emit("Connected to One Earth Network Backend!")
+                            android.util.Log.i("MonarchSync", "🔄 [RECONNECT] Backend reconnected, refetching monarchs...")
+                            fetchCurrentMonarchs()
                             syncAllWithBackend()
                         } else if (_isBackendConnected.value) {
                             // Periodic background sync of users, posts, and chats
                             syncAllWithBackend()
+                            
+                            // NEW: Periodic monarch refresh (every ~30 seconds)
+                            val currentTime = System.currentTimeMillis()
+                            if (currentTime - lastMonarchFetchTime > 30000) {
+                                android.util.Log.d("MonarchSync", "🔄 [PERIODIC] Refreshing monarchs (30s cycle)...")
+                                fetchCurrentMonarchs()
+                                lastMonarchFetchTime = currentTime
+                            }
                         }
                     } catch (e: Exception) {
                         _isBackendConnected.value = false
@@ -868,9 +892,97 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 } catch (notifEx: Exception) {
                     android.util.Log.e("AppViewModel", "Sync Notifications Error: ${notifEx.message}", notifEx)
                 }
+
+                // 5. Sync Authoritative Monarch from Backend
+                try {
+                    fetchCurrentMonarchs()
+                } catch (monarchEx: Exception) {
+                    android.util.Log.e("AppViewModel", "Sync Current Monarch Error: ${monarchEx.message}", monarchEx)
+                }
             } catch (e: Exception) {
                 // Fail-safe
                 android.util.Log.e("AppViewModel", "SyncAllWithBackend Error: ${e.message}", e)
+            }
+        }
+    }
+
+    // CRITICAL BUG FIX #1: AGGRESSIVE MONARCH FETCHING
+    // This ensures ALL users see the SAME King and Queen (election integrity)
+    // Made PUBLIC so it can be called from multiple places
+    // Added detailed logging to debug issues
+    fun fetchCurrentMonarchs() {
+        viewModelScope.launch {
+            try {
+                android.util.Log.d("MonarchSync", "🔍 [FETCH] Starting monarch fetch from API...")
+                val response = ApiClient.getService().getCurrentMonarch()
+                
+                android.util.Log.d("MonarchSync", "📡 [API] Response received: success=${response.success}, hasMonarch=${response.monarch != null}")
+                
+                if (response.success && response.monarch != null) {
+                    val monarchData = response.monarch
+                    
+                    android.util.Log.d("MonarchSync", "✅ [PARSE] Monarch data: id=${monarchData.id}, name=${monarchData.name}, rank=${monarchData.currentRank}")
+                    
+                    // Map the backend monarch response to a local UserEntity
+                    val monarchUser = UserEntity(
+                        id = monarchData.id,
+                        email = "${monarchData.username.lowercase().trim()}@oneearth.io",
+                        name = monarchData.name,
+                        username = monarchData.username,
+                        dob = "1995-01-01",
+                        territory = "Realm",
+                        flagEmoji = "👑",
+                        gender = "Male",
+                        currentRank = monarchData.currentRank,
+                        bio = monarchData.bio,
+                        profilePhoto = monarchData.profilePhoto,
+                        knowledgeCredits = 0,
+                        contributionCredits = 0,
+                        onboardingCompleted = true,
+                        citizenOathAccepted = true
+                    )
+                    
+                    // Clear opposite rank to prevent stale state
+                    when (monarchData.currentRank) {
+                        "King" -> {
+                            _currentKing.value = monarchUser
+                            _currentQueen.value = null  // IMPORTANT: Clear queen when king is set
+                            android.util.Log.i("MonarchSync", "👑 [SET] KING updated: ${monarchUser.name} (${monarchUser.id})")
+                        }
+                        "Queen" -> {
+                            _currentQueen.value = monarchUser
+                            _currentKing.value = null  // IMPORTANT: Clear king when queen is set
+                            android.util.Log.i("MonarchSync", "👑 [SET] QUEEN updated: ${monarchUser.name} (${monarchUser.id})")
+                        }
+                        else -> {
+                            android.util.Log.w("MonarchSync", "⚠️ [WARN] Unknown rank received: ${monarchData.currentRank}")
+                            _currentKing.value = null
+                            _currentQueen.value = null
+                        }
+                    }
+
+                    // Save to DB to maintain cache
+                    val existing = userDao.getUserById(monarchData.id)
+                    val toInsert = if (existing != null) {
+                        existing.copy(
+                            name = monarchData.name,
+                            username = monarchData.username,
+                            currentRank = monarchData.currentRank,
+                            bio = monarchData.bio,
+                            profilePhoto = monarchData.profilePhoto
+                        )
+                    } else {
+                        monarchUser
+                    }
+                    userDao.insertUser(toInsert)
+                } else {
+                    // No current monarch (throne vacant)
+                    android.util.Log.w("MonarchSync", "⚠️ [VACANT] Throne is empty - success=${response.success}")
+                    _currentKing.value = null
+                    _currentQueen.value = null
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MonarchSync", "❌ [ERROR] CRITICAL: Failed to fetch monarchs", e)
             }
         }
     }

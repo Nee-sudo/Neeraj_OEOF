@@ -122,6 +122,9 @@ interface OneEarthApiService {
     suspend fun sendFriendRequest(@Path("userId") userId: String): Map<String, Boolean>
 
     // ── Royal Profile Endpoints ──────────────────────────────
+    @GET("api/monarchs/current")
+    suspend fun getCurrentMonarch(): CurrentMonarchResponse
+
     @GET("api/royal-profiles/monarchs/{monarchId}")
     suspend fun getMonarchProfile(@Path("monarchId") monarchId: String): MonarchProfileResponse
 
@@ -313,4 +316,19 @@ data class RoyalDecreeDTO(
     val status: String,
     val territoryId: String?,
     val publishedAt: Long
+)
+
+data class CurrentMonarchResponse(
+    val success: Boolean,
+    val monarch: CurrentMonarchData?
+)
+
+data class CurrentMonarchData(
+    val id: String,
+    val name: String,
+    val username: String,
+    val currentRank: String,
+    val auraLevel: String,
+    val bio: String,
+    val profilePhoto: String
 )

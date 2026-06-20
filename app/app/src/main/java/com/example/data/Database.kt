@@ -38,6 +38,12 @@ data class UserEntity(
     val token: String? = null
 )
 
+data class RoyalSignature(
+    val monarchTitle: String = "",
+    val monarchName: String = "",
+    val signedAt: Long = 0L
+)
+
 @Entity(tableName = "posts")
 data class PostEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -55,7 +61,8 @@ data class PostEntity(
     val reputationImpact: Int = 100, // Reputation score of author
     val reactedWiseUsers: String = "", // Comma-separated list of reactor IDs
     val reactedHelpfulUsers: String = "", // Comma-separated list of reactor IDs
-    val reactedInspiringUsers: String = "" // Added to rep
+    val reactedInspiringUsers: String = "", // Added to rep
+    @Embedded(prefix = "sig_") val royalSignature: RoyalSignature? = null
 )
 
 @Entity(tableName = "comments")
@@ -313,7 +320,7 @@ interface HallOfLegendsDao {
         ImperialMissionEntity::class,
         HallOfLegendsEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

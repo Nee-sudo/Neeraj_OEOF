@@ -38,6 +38,12 @@ data class UserEntity(
     val token: String? = null
 )
 
+data class RoyalSignature(
+    val monarchTitle: String = "",
+    val monarchName: String = "",
+    val signedAt: Long = 0L
+)
+
 @Entity(tableName = "posts")
 data class PostEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -55,7 +61,8 @@ data class PostEntity(
     val reputationImpact: Int = 100, // Reputation score of author
     val reactedWiseUsers: String = "", // Comma-separated list of reactor IDs
     val reactedHelpfulUsers: String = "", // Comma-separated list of reactor IDs
-    val reactedInspiringUsers: String = "" // Added to rep
+    val reactedInspiringUsers: String = "", // Added to rep
+    @Embedded(prefix = "sig_") val royalSignature: RoyalSignature? = null
 )
 
 @Entity(tableName = "comments")
@@ -188,6 +195,12 @@ interface UserDao {
 
     @Query("SELECT * FROM users ORDER BY name ASC")
     fun getAllFriendsFlow(): Flow<List<UserEntity>>
+
+    @Query("SELECT * FROM users WHERE LOWER(currentRank) = 'king' LIMIT 1")
+    fun getKingFlow(): Flow<UserEntity?>
+
+    @Query("SELECT * FROM users WHERE LOWER(currentRank) = 'queen' LIMIT 1")
+    fun getQueenFlow(): Flow<UserEntity?>
 }
 
 @Dao
@@ -393,7 +406,7 @@ interface NotificationDao {
         HallOfLegendsEntity::class,
         NotificationEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

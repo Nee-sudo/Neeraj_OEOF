@@ -2515,6 +2515,11 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
         viewModel.notifyProfileView(user)
     }
 
+    val textPrimaryColor = if (isLight) Color(0xFF1E1E1E) else GhostWhite
+    val textSecondaryColor = if (isLight) Color(0xFF5E5E5E) else MutedSlate
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var bowingReputationBonus by remember { mutableStateOf(0) }
+
     Dialog(
         onDismissRequest = onClose,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
@@ -2533,10 +2538,42 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                if (isKingOrQueen) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(110.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = if (isLight) listOf(Color(0xFFFFF7E3), Color(0xFFFBF8F1)) else listOf(Color(0xFF2E1C00), Color(0xFF0F0E07))
+                                )
+                            )
+                            .padding(top = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("👑", fontSize = 32.sp)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "👑 IMPERIAL SOVEREIGN CHAMBER 👑",
+                                color = if (isLight) Color(0xFF906D00) else Color(0xFFD4AF37),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.sp
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = if (isKingOrQueen) 12.dp else 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                 val avatarBorderColor = when {
                     isKingOrQueen -> if (isLight) Color(0xFFB48A10) else Color(0xFFD4AF37)
                     isNobility -> if (isLight) Color(0xFF7C3AED) else Color(0xFFA78BFA)
@@ -2553,7 +2590,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                     isKingOrQueen -> if (isLight) Color(0xFF906D00) else Color(0xFFD4AF37)
                     isNobility -> if (isLight) Color(0xFF7C3AED) else Color(0xFFC084FC)
                     isCandidate -> if (isLight) Color(0xFF0284C7) else Color(0xFF4FC3F7)
-                    else -> GhostWhite
+                    else -> textPrimaryColor
                 }
 
                 Box(
@@ -2633,8 +2670,8 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         onValueChange = { editName = it },
                         label = { Text("Display Name") },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = GhostWhite,
-                            unfocusedTextColor = GhostWhite,
+                            focusedTextColor = textPrimaryColor,
+                            unfocusedTextColor = textPrimaryColor,
                             focusedBorderColor = RegalGold,
                             unfocusedBorderColor = MutedSlate
                         ),
@@ -2646,8 +2683,8 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         onValueChange = { editUsername = it },
                         label = { Text("Handle (Username)") },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = GhostWhite,
-                            unfocusedTextColor = GhostWhite,
+                            focusedTextColor = textPrimaryColor,
+                            unfocusedTextColor = textPrimaryColor,
                             focusedBorderColor = RegalGold,
                             unfocusedBorderColor = MutedSlate
                         ),
@@ -2659,8 +2696,8 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         onValueChange = { editBio = it },
                         label = { Text("Mission Bio") },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = GhostWhite,
-                            unfocusedTextColor = GhostWhite,
+                            focusedTextColor = textPrimaryColor,
+                            unfocusedTextColor = textPrimaryColor,
                             focusedBorderColor = RegalGold,
                             unfocusedBorderColor = MutedSlate
                         ),
@@ -2672,8 +2709,8 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         onValueChange = { editTerritory = it },
                         label = { Text("Territory Representation") },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = GhostWhite,
-                            unfocusedTextColor = GhostWhite,
+                            focusedTextColor = textPrimaryColor,
+                            unfocusedTextColor = textPrimaryColor,
                             focusedBorderColor = RegalGold,
                             unfocusedBorderColor = MutedSlate
                         ),
@@ -2685,8 +2722,8 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         onValueChange = { editFlagEmoji = it },
                         label = { Text("Flag Emoji") },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = GhostWhite,
-                            unfocusedTextColor = GhostWhite,
+                            focusedTextColor = textPrimaryColor,
+                            unfocusedTextColor = textPrimaryColor,
                             focusedBorderColor = RegalGold,
                             unfocusedBorderColor = MutedSlate
                         ),
@@ -2702,7 +2739,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                             colors = ButtonDefaults.buttonColors(containerColor = MutedSlate),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("CANCEL", color = GhostWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("CANCEL", color = if (isLight) Color.White else GhostWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                         Button(
                             onClick = {
@@ -2725,7 +2762,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                 } else {
                     Text(
                         text = user.name,
-                        color = GhostWhite,
+                        color = textPrimaryColor,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center
@@ -2738,7 +2775,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                     ) {
                         Text(
                             text = user.username,
-                            color = MutedSlate,
+                            color = textSecondaryColor,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center
                         )
@@ -2754,9 +2791,10 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                val genderTextColor = if (isLight) Color(0xFF444444) else GhostWhite
                                 Text(text = genderEmoji, fontSize = 10.sp)
                                 Spacer(modifier = Modifier.width(3.dp))
-                                Text(text = user.gender.uppercase(), color = GhostWhite, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Text(text = user.gender.uppercase(), color = genderTextColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -2779,7 +2817,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         isKingOrQueen -> if (isLight) Color(0xFF906D00) else Color(0xFFD4AF37)
                         isNobility -> if (isLight) Color(0xFF6D28D9) else Color(0xFFC084FC)
                         isCandidate -> if (isLight) Color(0xFF0284C7) else Color(0xFF4FC3F7)
-                        else -> GhostWhite
+                        else -> textPrimaryColor
                     }
                     val badgeText = when {
                         isKingOrQueen -> "⚜️ SOVEREIGN MONARCH ⚜️"
@@ -2811,16 +2849,16 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = "KC (Knowledge)", color = MutedSlate, fontSize = 10.sp)
+                            Text(text = "KC (Knowledge)", color = textSecondaryColor, fontSize = 10.sp)
                             Text(
                                 text = "${user.knowledgeCredits}",
                                 color = ElectricBlue,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold
-                            )
+                              )
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = "CC (Contribution)", color = MutedSlate, fontSize = 10.sp)
+                            Text(text = "CC (Contribution)", color = textSecondaryColor, fontSize = 10.sp)
                             Text(
                                 text = "${user.contributionCredits}",
                                 color = LustrousAmber,
@@ -2829,12 +2867,12 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                             )
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = "Reputation", color = MutedSlate, fontSize = 10.sp)
+                            Text(text = "Reputation", color = textSecondaryColor, fontSize = 10.sp)
                             Text(
-                                text = "${user.reputationScore}%",
-                                color = EmeraldSuccess,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
+                                  text = "${user.reputationScore}%",
+                                  color = EmeraldSuccess,
+                                  fontSize = 15.sp,
+                                  fontWeight = FontWeight.Bold
                             )
                         }
                     }
@@ -2850,13 +2888,32 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                     )
                     Text(
                         text = user.bio,
-                        color = GhostWhite.copy(alpha = 0.85f),
+                        color = textPrimaryColor.copy(alpha = 0.85f),
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
                         modifier = Modifier
                             .align(Alignment.Start)
                             .padding(top = 4.dp, bottom = 12.dp)
                     )
+
+                    if (isKingOrQueen) {
+                        Button(
+                            onClick = {
+                                bowingReputationBonus += 1
+                                val honorTitle = if (user.gender.equals("Female", ignoreCase = true)) "Her Imperial Majesty" else "His Imperial Majesty"
+                                android.widget.Toast.makeText(context, "🙇 You have bowed before $honorTitle. Blessing received! (+1 Sovereign Respect)", android.widget.Toast.LENGTH_LONG).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isLight) Color(0xFFB48A10) else Color(0xFFD4AF37)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("☀️", fontSize = 16.sp)
+                                Text("BOW IN REVERENCE ($bowingReputationBonus)", color = if (isLight) Color.White else Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("☀️", fontSize = 16.sp)
+                            }
+                        }
+                    }
 
                     if (user.isCandidate) {
                         Divider(color = MutedSlate.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 8.dp))
@@ -2869,7 +2926,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         )
                         Text(
                             text = user.campaignVision,
-                            color = GhostWhite,
+                            color = textPrimaryColor,
                             fontSize = 11.sp,
                             modifier = Modifier.align(Alignment.Start).padding(top = 2.dp)
                         )
@@ -2930,8 +2987,11 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         var isEditingPost by remember { mutableStateOf(false) }
                         var editedContent by remember { mutableStateOf(post.content) }
 
+                        val archiveCardBg = if (isLight) Color(0xFFF1ECE1) else CharcoalObsidian
+                        val archiveTextColor = if (isLight) Color(0xFF2C2414) else GhostWhite
+                        
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = CharcoalObsidian),
+                            colors = CardDefaults.cardColors(containerColor = archiveCardBg),
                             border = BorderStroke(0.5.dp, MutedSlate.copy(alpha = 0.3f)),
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             shape = RoundedCornerShape(12.dp)
@@ -2969,8 +3029,8 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                                         value = editedContent,
                                         onValueChange = { editedContent = it },
                                         colors = OutlinedTextFieldDefaults.colors(
-                                            focusedTextColor = GhostWhite,
-                                            unfocusedTextColor = GhostWhite,
+                                            focusedTextColor = archiveTextColor,
+                                            unfocusedTextColor = archiveTextColor,
                                             focusedBorderColor = RegalGold,
                                             unfocusedBorderColor = MutedSlate
                                         ),
@@ -2991,7 +3051,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                                         }
                                     }
                                 } else {
-                                    Text(text = post.content, color = GhostWhite, fontSize = 11.sp, lineHeight = 15.sp)
+                                    Text(text = post.content, color = archiveTextColor, fontSize = 11.sp, lineHeight = 15.sp)
                                 }
                             }
                         }
@@ -3007,6 +3067,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                     modifier = Modifier.fillMaxWidth().height(42.dp)
                 ) {
                     Text("CLOSE PARADIGM", color = CharcoalObsidian, fontWeight = FontWeight.Bold)
+                }
                 }
             }
         }
@@ -3245,6 +3306,60 @@ fun PublicSquareTab(viewModel: AppViewModel) {
                                 lineHeight = 20.sp,
                                 modifier = Modifier.padding(vertical = 12.dp)
                             )
+
+                            if (post.royalSignature != null && post.royalSignature.monarchName.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = if (ThemeState.isLight) Color(0xFFFFF9EB) else Color(0xFF1E1402)),
+                                    border = BorderStroke(1.2.dp, if (ThemeState.isLight) Color(0xFFC5A023) else Color(0xFFD4AF37)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text("⚜️", fontSize = 16.sp)
+                                            Text(
+                                                text = "ROYAL IMPERIAL SIGNATURE DECREE",
+                                                color = if (ThemeState.isLight) Color(0xFF906D00) else Color(0xFFD4AF37),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                letterSpacing = 1.sp
+                                            )
+                                            Spacer(modifier = Modifier.weight(1f))
+                                            Text("👑", fontSize = 14.sp)
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "“Verified signed under the golden crown by ${post.royalSignature.monarchTitle.uppercase()} ${post.royalSignature.monarchName}”",
+                                            color = if (ThemeState.isLight) Color(0xFF2C2414) else GhostWhite,
+                                            fontSize = 11.sp,
+                                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                            lineHeight = 15.sp,
+                                            modifier = Modifier.padding(start = 2.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        val formattedDate = try {
+                                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+                                            sdf.format(java.util.Date(post.royalSignature.signedAt))
+                                        } catch (e: Exception) {
+                                            "Imperial reign chronicle ledger time"
+                                        }
+                                        Text(
+                                            text = "Imperial Reign Ledger Date: $formattedDate",
+                                            color = if (ThemeState.isLight) Color(0xFF6B5E49) else MutedSlate,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
 
                             // Custom Reactions row (Rejects generic dopamine likes)
                             Row(
@@ -5034,6 +5149,8 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
     val visitors by viewModel.profileVisitors.collectAsState()
     val candidates by viewModel.electionCandidates.collectAsState()
     val leaderboardUsers by viewModel.leaderboardUsers.collectAsState()
+    val currentKing by viewModel.currentKing.collectAsState()
+    val currentQueen by viewModel.currentQueen.collectAsState()
 
     var showCampaignModalByMe by remember { mutableStateOf(false) }
     var campaignVision by remember { mutableStateOf("") }
@@ -5672,62 +5789,206 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // King and Queen highlights
-                    val kingUser = leaderboardUsers.firstOrNull { it.gender.equals("Male", ignoreCase = true) }
+                    // King and Queen highlights - Using authoritative backend flows with local leaderboard fallback
+                    val kingUser = currentKing
+                        ?: leaderboardUsers.firstOrNull { it.currentRank.equals("King", ignoreCase = true) }
+                        ?: leaderboardUsers.firstOrNull { it.gender.equals("Male", ignoreCase = true) }
                         ?: leaderboardUsers.getOrNull(0)
-                    val queenUser = leaderboardUsers.firstOrNull { it.gender.equals("Female", ignoreCase = true) && it.id != kingUser?.id }
+
+                    val queenUser = currentQueen
+                        ?: leaderboardUsers.firstOrNull { it.currentRank.equals("Queen", ignoreCase = true) && it.id != kingUser?.id }
+                        ?: leaderboardUsers.firstOrNull { it.gender.equals("Female", ignoreCase = true) && it.id != kingUser?.id }
                         ?: leaderboardUsers.getOrNull(1)
+
+                    // Defensive logging to trace rendering stability across devices
+                    LaunchedEffect(kingUser, queenUser) {
+                        android.util.Log.d("LeaderboardUI", "👑 [RENDER] King: ${kingUser?.name ?: "NULL"}, Queen: ${queenUser?.name ?: "NULL"}")
+                    }
 
                     if (kingUser != null) {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = CharcoalObsidian),
-                            border = BorderStroke(1.dp, RegalGold),
-                            shape = RoundedCornerShape(10.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                            border = BorderStroke(1.5.dp, RegalGold),
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 8.dp)
+                                .padding(bottom = 10.dp)
                                 .clickable { viewModel.showProfileForUser(kingUser.id) }
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                CharcoalObsidian,
+                                                Color(0xFF2C2214)
+                                            )
+                                        )
+                                    )
+                                    .fillMaxWidth()
+                                    .padding(14.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Crown section with soft background glow
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .background(RegalGold.copy(alpha = 0.12f), CircleShape)
+                                            .border(1.dp, RegalGold.copy(alpha = 0.3f), CircleShape)
+                                    ) {
+                                        Text("👑", fontSize = 22.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("KING OF THE REALM", color = RegalGold, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(kingUser.name, color = GhostWhite, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text("${kingUser.currentRank} • ${kingUser.flagEmoji} ${kingUser.territory}", color = MutedSlate.copy(alpha = 0.85f), fontSize = 10.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        color = RegalGold.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(0.5.dp, RegalGold.copy(alpha = 0.4f))
+                                    ) {
+                                        Text(
+                                            text = "${kingUser.knowledgeCredits + kingUser.contributionCredits} ★",
+                                            color = RegalGold,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Elegant Loading / Empty Placeholder for King
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CharcoalObsidian.copy(alpha = 0.5f)),
+                            border = BorderStroke(1.dp, RegalGold.copy(alpha = 0.25f)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 10.dp)
+                        ) {
                             Row(
-                                modifier = Modifier.padding(10.dp),
+                                modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("👑", fontSize = 24.sp)
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text("KING OF THE REALM", color = RegalGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                    Text(kingUser.name, color = GhostWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                    Text("${kingUser.currentRank} • ${kingUser.flagEmoji} ${kingUser.territory}", color = MutedSlate, fontSize = 10.sp)
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .background(RegalGold.copy(alpha = 0.04f), CircleShape)
+                                        .border(1.dp, RegalGold.copy(alpha = 0.1f), CircleShape)
+                                ) {
+                                    Text("👑", fontSize = 22.sp, color = RegalGold.copy(alpha = 0.4f))
                                 }
-                                Spacer(modifier = Modifier.weight(1f))
-                                Text("${kingUser.knowledgeCredits + kingUser.contributionCredits} Credits", color = RegalGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column {
+                                    Text("KING OF THE REALM", color = RegalGold.copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text("Crown Vacant / Loading...", color = GhostWhite.copy(alpha = 0.5f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
 
                     if (queenUser != null) {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = CharcoalObsidian),
-                            border = BorderStroke(1.dp, RegalGold.copy(alpha = 0.6f)),
-                            shape = RoundedCornerShape(10.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                            border = BorderStroke(1.5.dp, Color(0xFFE5A4F4)),
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 12.dp)
                                 .clickable { viewModel.showProfileForUser(queenUser.id) }
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                CharcoalObsidian,
+                                                Color(0xFF271B2B)
+                                            )
+                                        )
+                                    )
+                                    .fillMaxWidth()
+                                    .padding(14.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Crown section with soft background glow
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .background(Color(0xFFE5A4F4).copy(alpha = 0.12f), CircleShape)
+                                            .border(1.dp, Color(0xFFE5A4F4).copy(alpha = 0.3f), CircleShape)
+                                    ) {
+                                        Text("👑", fontSize = 22.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("QUEEN OF THE REALM", color = Color(0xFFE5A4F4), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(queenUser.name, color = GhostWhite, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text("${queenUser.currentRank} • ${queenUser.flagEmoji} ${queenUser.territory}", color = MutedSlate.copy(alpha = 0.85f), fontSize = 10.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        color = Color(0xFFE5A4F4).copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(0.5.dp, Color(0xFFE5A4F4).copy(alpha = 0.4f))
+                                    ) {
+                                        Text(
+                                            text = "${queenUser.knowledgeCredits + queenUser.contributionCredits} ★",
+                                            color = Color(0xFFE5A4F4),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Elegant Loading / Empty Placeholder for Queen
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = CharcoalObsidian.copy(alpha = 0.5f)),
+                            border = BorderStroke(1.dp, Color(0xFFE5A4F4).copy(alpha = 0.25f)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                        ) {
                             Row(
-                                modifier = Modifier.padding(10.dp),
+                                modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("👑", fontSize = 24.sp)
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text("QUEEN OF THE REALM", color = RegalGold.copy(alpha = 0.8f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                    Text(queenUser.name, color = GhostWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                    Text("${queenUser.currentRank} • ${queenUser.flagEmoji} ${queenUser.territory}", color = MutedSlate, fontSize = 10.sp)
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .background(Color(0xFFE5A4F4).copy(alpha = 0.04f), CircleShape)
+                                        .border(1.dp, Color(0xFFE5A4F4).copy(alpha = 0.1f), CircleShape)
+                                ) {
+                                    Text("👑", fontSize = 22.sp, color = Color(0xFFE5A4F4).copy(alpha = 0.4f))
                                 }
-                                Spacer(modifier = Modifier.weight(1f))
-                                Text("${queenUser.knowledgeCredits + queenUser.contributionCredits} Credits", color = RegalGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column {
+                                    Text("QUEEN OF THE REALM", color = Color(0xFFE5A4F4).copy(alpha = 0.5f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text("Crown Vacant / Loading...", color = GhostWhite.copy(alpha = 0.5f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
@@ -5744,28 +6005,60 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
 
                     leaderboardUsers.forEachIndexed { index, user ->
                         val totalCredits = user.knowledgeCredits + user.contributionCredits
+                        val rowBg = if (ThemeState.isLight) Color(0xFFF1F5F9) else Color.White.copy(alpha = 0.02f)
+                        val rowBorder = if (ThemeState.isLight) Color(0xFFE2E8F0) else Color.White.copy(alpha = 0.05f)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 5.dp)
-                                .clickable { viewModel.showProfileForUser(user.id) },
+                                .padding(vertical = 2.dp)
+                                .background(rowBg, RoundedCornerShape(10.dp))
+                                .border(0.5.dp, rowBorder, RoundedCornerShape(10.dp))
+                                .clickable { viewModel.showProfileForUser(user.id) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "${index + 1}.",
-                                    color = RegalGold,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.width(24.dp)
-                                )
-                                Text(user.flagEmoji, fontSize = 16.sp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                // Dynamic premium badge numbers
+                                val badgeBg = if (index == 0) RegalGold.copy(alpha = 0.15f)
+                                              else if (ThemeState.isLight) Color(0xFFE2E8F0)
+                                              else Color.White.copy(alpha = 0.05f)
+                                val badgeBorder = if (index == 0) RegalGold.copy(alpha = 0.5f)
+                                                  else if (ThemeState.isLight) Color(0xFFCBD5E1)
+                                                  else Color.White.copy(alpha = 0.1f)
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .background(badgeBg, CircleShape)
+                                        .border(0.5.dp, badgeBorder, CircleShape)
+                                ) {
+                                    Text(
+                                        text = "${index + 1}",
+                                        color = if (index == 0) RegalGold else GhostWhite,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(user.flagEmoji, fontSize = 18.sp)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {
-                                    Text(user.name, color = GhostWhite, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        user.name,
+                                        color = GhostWhite,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("${user.currentRank} • ${user.territory}", color = MutedSlate, fontSize = 9.sp)
+                                        Text(
+                                            "${user.currentRank} • ${user.territory}",
+                                            color = MutedSlate,
+                                            fontSize = 9.sp
+                                        )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Card(
                                             colors = CardDefaults.cardColors(containerColor = ElectricBlue.copy(alpha = 0.15f)),
