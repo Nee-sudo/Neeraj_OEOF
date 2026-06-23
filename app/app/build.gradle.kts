@@ -4,6 +4,7 @@ plugins {
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
+  alias(libs.plugins.google.services)
 }
 
 android {
@@ -11,7 +12,7 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.oneearth.nzrmpq"
+    applicationId = "com.example.oneearth"
     minSdk = 24
     targetSdk = 36
     versionCode = 2
@@ -63,6 +64,12 @@ android {
 secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
+  ignoreList.add("MONGO_URI")
+  ignoreList.add("DATABASE_URL")
+  ignoreList.add("JWT_SECRET")
+  ignoreList.add("JWT_REFRESH_SECRET")
+  ignoreList.add("PORT")
+  ignoreList.add("FIREBASE_SERVICE_ACCOUNT")
 }
 
 // Some unused dependencies are commented out below instead of being removed.
@@ -70,6 +77,7 @@ secrets {
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
+  implementation("com.google.firebase:firebase-messaging")
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
   // implementation(libs.androidx.camera.camera2)

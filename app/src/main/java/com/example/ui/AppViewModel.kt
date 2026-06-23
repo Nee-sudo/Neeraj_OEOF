@@ -490,6 +490,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 android.util.Log.i("MonarchSync", "📲 [LOGIN] User logged in, fetching current monarchs immediately...")
                 fetchCurrentMonarchs()
                 
+                queryAndSendFcmToken()
+
                 if (loggedInUser.onboardingCompleted && loggedInUser.citizenOathAccepted) {
                     _currentScreen.value = Screen.MainDashboard
                 } else if (!loggedInUser.onboardingCompleted) {
@@ -507,10 +509,69 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
         }
     }
 
+    fun queryAndSendFcmToken() {
+        viewModelScope.launch {
+            try {
+                val persistedUrl = sharedPrefs.getString("backend_url", null) ?: ApiClient.getBaseUrl()
+                ApiClient.updateBaseUrl(persistedUrl)
+
+                val loggedInUser = userDao.getUserById("me") ?: return@launch
+                val token = loggedInUser.token
+                if (!token.isNullOrBlank()) {
+                    ApiClient.authToken = token
+                }
+
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                    .addOnCompleteListener { task ->
+                        if (!task.isSuccessful) {
+                            android.util.Log.w("FCM", "Getting FCM token failed", task.exception)
+                            return@addOnCompleteListener
+                        }
+
+                        val fcmToken = task.result
+                        android.util.Log.i("FCM", "Acquired FCM Registration Token: $fcmToken")
+
+                        viewModelScope.launch {
+                            try {
+                                val updatedUser = loggedInUser.copy(fcmToken = fcmToken)
+                                userDao.insertUser(updatedUser)
+
+                                val userEmail = loggedInUser.email.lowercase().trim()
+                                try {
+                                    ApiClient.getService().updateProfileFields(userEmail, mapOf("fcmToken" to fcmToken))
+                                    android.util.Log.i("FCM", "Successfully updated backend registration token.")
+                                } catch (fieldEx: java.lang.Exception) {
+                                    android.util.Log.e("FCM", "FCM direct field update failed, trying full profile fallback: ${fieldEx.message}")
+                                    try {
+                                        ApiClient.getService().updateUserProfile(userEmail, updatedUser)
+                                        android.util.Log.i("FCM", "Successfully synced profile registration token via fallback.")
+                                    } catch (fallbackEx: java.lang.Exception) {
+                                        android.util.Log.e("FCM", "FCM full fallback update failed: ${fallbackEx.message}")
+                                    }
+                                }
+                            } catch (apiEx: java.lang.Exception) {
+                                android.util.Log.e("FCM", "FCM local update failed: ${apiEx.message}")
+                            }
+                        }
+                    }
+            } catch (e: java.lang.Exception) {
+                android.util.Log.e("FCM", "queryAndSendFcmToken failed: ${e.message}")
+            }
+        }
+    }
+
     fun performLogout() {
         viewModelScope.launch {
             _selectedRoomId.value = null
             dismissNotification()
+            try {
+                val me = userDao.getUserById("me")
+                if (me != null && _isBackendConnected.value) {
+                    ApiClient.getService().updateProfileFields(me.email.lowercase().trim(), mapOf("fcmToken" to ""))
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FCM", "Reset FCM on logout error: ${e.message}")
+            }
             ApiClient.authToken = null
             userDao.deleteUserById("me")
             _currentScreen.value = Screen.Splash
@@ -724,7 +785,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 title = notification.title,
                 body = notification.body,
                 isRead = notification.isRead,
-                createdAt = notification.createdAt
+                createdAt = notification.createdAt,
+                roomId = notification.roomId,
+                postId = notification.postId,
+                userId = notification.userId
             )
             notificationDao.insertNotification(entity)
 
@@ -884,7 +948,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                                 title = dto.title,
                                 body = dto.body,
                                 isRead = dto.isRead,
-                                createdAt = dto.createdAt
+                                createdAt = dto.createdAt,
+                                roomId = dto.roomId,
+                                postId = dto.postId,
+                                userId = dto.userId
                             )
                         }
                         notificationDao.insertNotifications(mapped)
@@ -916,67 +983,81 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 android.util.Log.d("MonarchSync", "🔍 [FETCH] Starting monarch fetch from API...")
                 val response = ApiClient.getService().getCurrentMonarch()
                 
-                android.util.Log.d("MonarchSync", "📡 [API] Response received: success=${response.success}, hasMonarch=${response.monarch != null}")
+                android.util.Log.d("MonarchSync", "📡 [API] Response received: success=${response.success}, hasKing=${response.king != null}, hasQueen=${response.queen != null}")
                 
-                if (response.success && response.monarch != null) {
-                    val monarchData = response.monarch
-                    
-                    android.util.Log.d("MonarchSync", "✅ [PARSE] Monarch data: id=${monarchData.id}, name=${monarchData.name}, rank=${monarchData.currentRank}")
-                    
-                    // Map the backend monarch response to a local UserEntity
-                    val monarchUser = UserEntity(
-                        id = monarchData.id,
-                        email = "${monarchData.username.lowercase().trim()}@oneearth.io",
-                        name = monarchData.name,
-                        username = monarchData.username,
-                        dob = "1995-01-01",
-                        territory = "Realm",
-                        flagEmoji = "👑",
-                        gender = if (monarchData.currentRank.equals("Queen", ignoreCase = true)) "Female" else "Male",
-                        currentRank = monarchData.currentRank,
-                        bio = monarchData.bio,
-                        profilePhoto = monarchData.profilePhoto,
-                        knowledgeCredits = 0,
-                        contributionCredits = 0,
-                        onboardingCompleted = true,
-                        citizenOathAccepted = true
-                    )
-                    
-                    // Clear opposite rank to prevent stale state
-                    when (monarchData.currentRank) {
-                        "King" -> {
-                            _currentKing.value = monarchUser
-                            _currentQueen.value = null  // IMPORTANT: Clear queen when king is set
-                            android.util.Log.i("MonarchSync", "👑 [SET] KING updated: ${monarchUser.name} (${monarchUser.id})")
-                        }
-                        "Queen" -> {
-                            _currentQueen.value = monarchUser
-                            _currentKing.value = null  // IMPORTANT: Clear king when queen is set
-                            android.util.Log.i("MonarchSync", "👑 [SET] QUEEN updated: ${monarchUser.name} (${monarchUser.id})")
-                        }
-                        else -> {
-                            android.util.Log.w("MonarchSync", "⚠️ [WARN] Unknown rank received: ${monarchData.currentRank}")
-                            _currentKing.value = null
-                            _currentQueen.value = null
-                        }
+                if (response.success) {
+                    if (response.king != null) {
+                        val kingData = response.king
+                        val kingUser = UserEntity(
+                            id = kingData.id,
+                            email = "${kingData.username.lowercase().trim()}@oneearth.io",
+                            name = kingData.name,
+                            username = kingData.username,
+                            dob = "1992-08-21",
+                            territory = "Realm",
+                            flagEmoji = "👑",
+                            gender = "Male",
+                            currentRank = "King",
+                            bio = kingData.bio,
+                            profilePhoto = kingData.profilePhoto,
+                            knowledgeCredits = 0,
+                            contributionCredits = 0,
+                            onboardingCompleted = true,
+                            citizenOathAccepted = true
+                        )
+                        _currentKing.value = kingUser
+                        
+                        // Cache King
+                        val existingKing = userDao.getUserById(kingData.id)
+                        val toInsertKing = existingKing?.copy(
+                            name = kingData.name,
+                            username = kingData.username,
+                            currentRank = "King",
+                            bio = kingData.bio,
+                            profilePhoto = kingData.profilePhoto
+                        ) ?: kingUser
+                        userDao.insertUser(toInsertKing)
+                        android.util.Log.i("MonarchSync", "👑 [SET] KING updated: ${kingUser.name}")
+                    } else {
+                        _currentKing.value = null
                     }
 
-                    // Save to DB to maintain cache
-                    val existing = userDao.getUserById(monarchData.id)
-                    val toInsert = if (existing != null) {
-                        existing.copy(
-                            name = monarchData.name,
-                            username = monarchData.username,
-                            currentRank = monarchData.currentRank,
-                            bio = monarchData.bio,
-                            profilePhoto = monarchData.profilePhoto
+                    if (response.queen != null) {
+                        val queenData = response.queen
+                        val queenUser = UserEntity(
+                            id = queenData.id,
+                            email = "${queenData.username.lowercase().trim()}@oneearth.io",
+                            name = queenData.name,
+                            username = queenData.username,
+                            dob = "1994-04-12",
+                            territory = "Realm",
+                            flagEmoji = "💎",
+                            gender = "Female",
+                            currentRank = "Queen",
+                            bio = queenData.bio,
+                            profilePhoto = queenData.profilePhoto,
+                            knowledgeCredits = 0,
+                            contributionCredits = 0,
+                            onboardingCompleted = true,
+                            citizenOathAccepted = true
                         )
+                        _currentQueen.value = queenUser
+                        
+                        // Cache Queen
+                        val existingQueen = userDao.getUserById(queenData.id)
+                        val toInsertQueen = existingQueen?.copy(
+                            name = queenData.name,
+                            username = queenData.username,
+                            currentRank = "Queen",
+                            bio = queenData.bio,
+                            profilePhoto = queenData.profilePhoto
+                        ) ?: queenUser
+                        userDao.insertUser(toInsertQueen)
+                        android.util.Log.i("MonarchSync", "👑 [SET] QUEEN updated: ${queenUser.name}")
                     } else {
-                        monarchUser
+                        _currentQueen.value = null
                     }
-                    userDao.insertUser(toInsert)
                 } else {
-                    // No current monarch (throne vacant)
                     android.util.Log.w("MonarchSync", "⚠️ [VACANT] Throne is empty - success=${response.success}")
                     _currentKing.value = null
                     _currentQueen.value = null
@@ -999,7 +1080,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
     }
 
     suspend fun saveUserAndRecalculateRank(user: UserEntity) {
-        val calculatedRank = getRankFromCredits(user.knowledgeCredits, user.contributionCredits)
+        val isMonarch = user.currentRank.equals("King", ignoreCase = true) || user.currentRank.equals("Queen", ignoreCase = true)
+        val calculatedRank = if (isMonarch) {
+            user.currentRank
+        } else {
+            getRankFromCredits(user.knowledgeCredits, user.contributionCredits)
+        }
         val updated = user.copy(currentRank = calculatedRank)
         userDao.insertUser(updated)
         
@@ -1020,57 +1106,41 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
     fun showProfileForUser(userId: String) {
         viewModelScope.launch {
             val lUsers = leaderboardUsers.value
-            val isQueenId = userId.equals("default_queen", ignoreCase = true) ||
-                            userId.contains("queen", ignoreCase = true) ||
-                            userId.equals(currentQueen.value?.id, ignoreCase = true) ||
-                            lUsers.any { it.id == userId && (it.gender.equals("Female", ignoreCase = true) || it.currentRank.equals("Queen", ignoreCase = true)) }
+            val me = userDao.getUserById("me")
 
-            val isKingId = userId.equals("default_king", ignoreCase = true) ||
-                           userId.contains("king", ignoreCase = true) ||
-                           userId.equals(currentKing.value?.id, ignoreCase = true) ||
-                           lUsers.any { it.id == userId && (it.gender.equals("Male", ignoreCase = true) || it.currentRank.equals("King", ignoreCase = true)) }
+            val activeKing = currentKing.value?.takeIf { it.gender.equals("Male", ignoreCase = true) }
+                ?: me?.takeIf { it.currentRank.equals("King", ignoreCase = true) && it.gender.equals("Male", ignoreCase = true) }
+                ?: lUsers.firstOrNull { it.currentRank.equals("King", ignoreCase = true) && it.gender.equals("Male", ignoreCase = true) }
+                ?: lUsers.firstOrNull { it.gender.equals("Male", ignoreCase = true) }
+                ?: lUsers.firstOrNull { it.currentRank.equals("King", ignoreCase = true) }
+
+            val activeQueen = currentQueen.value?.takeIf { it.gender.equals("Female", ignoreCase = true) }
+                ?: me?.takeIf { it.currentRank.equals("Queen", ignoreCase = true) && it.gender.equals("Female", ignoreCase = true) }
+                ?: lUsers.firstOrNull { it.currentRank.equals("Queen", ignoreCase = true) && it.gender.equals("Female", ignoreCase = true) }
+                ?: lUsers.firstOrNull { it.gender.equals("Female", ignoreCase = true) && it.id != activeKing?.id }
+                ?: lUsers.firstOrNull { it.currentRank.equals("Queen", ignoreCase = true) }
+
+            val isQueenId = userId.equals(activeQueen?.id, ignoreCase = true)
+            val isKingId = userId.equals(activeKing?.id, ignoreCase = true)
 
             val user = userDao.getUserById(userId) ?: UserEntity(
                 id = userId,
-                name = if (userId.equals("default_queen", ignoreCase = true)) "Sovereign Queen Elena"
-                       else if (userId.equals("default_king", ignoreCase = true)) "Dr. Linus Vance"
-                       else userId.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } },
-                username = if (userId.equals("default_queen", ignoreCase = true)) "@elena"
-                           else if (userId.equals("default_king", ignoreCase = true)) "@linus_v"
-                           else "@$userId",
-                email = if (userId.equals("default_queen", ignoreCase = true)) "elena@oneearth.io"
-                        else if (userId.equals("default_king", ignoreCase = true)) "linus@oneearth.io"
-                        else "$userId@oneearth.io",
-                dob = if (userId.equals("default_queen", ignoreCase = true)) "1994-04-12"
-                      else if (userId.equals("default_king", ignoreCase = true)) "1992-08-21"
-                      else "1995-01-01",
+                name = userId.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } },
+                username = "@$userId",
+                email = "$userId@oneearth.io",
+                dob = "1995-01-01",
                 territory = "Global",
-                flagEmoji = if (userId.equals("default_queen", ignoreCase = true)) "💎"
-                            else if (userId.equals("default_king", ignoreCase = true)) "👑"
-                            else "🌍",
+                flagEmoji = "🌍",
                 gender = if (isQueenId) "Female" else "Male",
                 currentRank = if (isQueenId) "Queen" else if (isKingId) "King" else "Noble Member",
-                knowledgeCredits = if (userId.equals("default_queen", ignoreCase = true)) 1500
-                                   else if (userId.equals("default_king", ignoreCase = true)) 1800
-                                   else 120,
-                contributionCredits = if (userId.equals("default_queen", ignoreCase = true)) 950
-                                      else if (userId.equals("default_king", ignoreCase = true)) 1200
-                                      else 65,
+                knowledgeCredits = 120,
+                contributionCredits = 80,
                 reputationScore = 98,
-                bio = if (userId.equals("default_queen", ignoreCase = true)) "Supreme Diplomat and elected Queen of the united realities."
-                      else if (userId.equals("default_king", ignoreCase = true)) "Grand Educator and democratically elected King of the united realities."
-                      else "Co-building a beautiful world with high-quality, constructive contributions."
+                bio = "Co-building a beautiful world with high-quality, constructive contributions."
             )
-
-            val isLeaderboardKing = lUsers.firstOrNull { it.gender.equals("Male", ignoreCase = true) }?.id == user.id || 
-                         (lUsers.isNotEmpty() && lUsers.getOrNull(0)?.id == user.id && user.gender.equals("Male", ignoreCase = true))
-            val isLeaderboardQueen = lUsers.firstOrNull { it.gender.equals("Female", ignoreCase = true) && it.id != lUsers.firstOrNull { m -> m.gender.equals("Male", ignoreCase = true) }?.id }?.id == user.id ||
-                          (lUsers.size > 1 && lUsers.getOrNull(1)?.id == user.id && user.gender.equals("Female", ignoreCase = true))
 
             val isMonarch = user.currentRank.equals("King", ignoreCase = true) || 
                             user.currentRank.equals("Queen", ignoreCase = true) ||
-                            isLeaderboardKing || 
-                            isLeaderboardQueen ||
                             isQueenId ||
                             isKingId
 
@@ -1099,8 +1169,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                     "Arjun Patel" -> "gandhi_avatar"
                     "Clara Dupont" -> "clara_nobel"
                     "Kofi Mensah" -> "kenya_leader"
-                    "Sovereign Queen Elena" -> "default_queen"
-                    "Dr. Linus Vance" -> "default_king"
                     else -> name.lowercase().replace(" ", "_")
                 }
             }
@@ -1126,12 +1194,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                     flagEmoji = flag,
                     currentRank = rank,
                     gender = if (isFemale) "Female" else "Male",
-                    knowledgeCredits = if (id == "default_queen") 1500 else if (id == "default_king") 1800 else 110,
-                    contributionCredits = if (id == "default_queen") 950 else if (id == "default_king") 1200 else 80,
+                    knowledgeCredits = 110,
+                    contributionCredits = 80,
                     reputationScore = 97,
-                    bio = if (id == "default_queen") "Supreme Diplomat and elected Queen of the united realities."
-                          else if (id == "default_king") "Grand Educator and democratically elected King of the united realities."
-                          else "Proud citizen of our digital Empire. Active in $territory."
+                    bio = "Proud citizen of our digital Empire. Active in $territory."
                 )
                 userDao.insertUser(tempUser)
                 showProfileForUser(tempUser.id)
@@ -1256,6 +1322,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                     val clonedMe = remoteUser.copy(id = "me")
                     saveUserAndRecalculateRank(clonedMe)
                     userDao.insertUser(remoteUser.copy(id = remoteUser.email.lowercase()))
+                    fetchCurrentMonarchs() // Fetch real-time monarchs immediately
+                    queryAndSendFcmToken()
                     _toastMessage.emit("Welcome Back (Sync Active), ${remoteUser.name}!")
                     _currentScreen.value = Screen.MainDashboard
                     onResult(true)
@@ -1283,6 +1351,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 if (matchedUser.passphrase == passphraseInput || (matchedUser.passphrase == "1234" && passphraseInput.isEmpty())) {
                     val clonedMe = matchedUser.copy(id = "me")
                     saveUserAndRecalculateRank(clonedMe)
+                    queryAndSendFcmToken()
                     _toastMessage.emit("Welcome Back, ${matchedUser.name}!")
                     _currentScreen.value = Screen.MainDashboard
                     onResult(true)
@@ -1361,7 +1430,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             title = dto.title,
                             body = dto.body,
                             isRead = dto.isRead,
-                            createdAt = dto.createdAt
+                            createdAt = dto.createdAt,
+                            roomId = dto.roomId,
+                            postId = dto.postId,
+                            userId = dto.userId
                         )
                     }
                     notificationDao.insertNotifications(mapped)
@@ -1611,6 +1683,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 }
             }
 
+            fetchCurrentMonarchs() // Fetch real-time monarchs immediately
+            queryAndSendFcmToken() // Immediately sync FCM token for newly registered user
             _showDailyWelcome.value = true
             _currentScreen.value = Screen.MainDashboard
         }
@@ -1641,10 +1715,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             knowledgeValue = post.knowledgeValue + 1,
                             reactedWiseUsers = reactors.joinToString(",")
                         )
-                        _toastMessage.emit("+1 KC added to author's merit record!")
-                        awardAuthorPoints(post.authorId, kDelta = 5, cDelta = 0)
-
-
+                        _toastMessage.emit("Your wise reaction has been recorded")
                     }
                 }
                 "Helpful" -> {
@@ -1663,10 +1734,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             contributionProof = post.contributionProof + 1,
                             reactedHelpfulUsers = reactors.joinToString(",")
                         )
-                        _toastMessage.emit("+1 CC added to author's social action index!")
-                        awardAuthorPoints(post.authorId, kDelta = 0, cDelta = 5)
-
-
+                        _toastMessage.emit("Your helpful reaction has been recorded")
                     }
                 }
                 "Inspiring" -> {
@@ -1685,10 +1753,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             reputationImpact = (post.reputationImpact + 1).coerceAtMost(100),
                             reactedInspiringUsers = reactors.joinToString(",")
                         )
-                        _toastMessage.emit("Author's Reputation score elevated by +1%!")
-                        incrementReputation(post.authorId, delta = 1)
-
-
+                        _toastMessage.emit("Your inspiring reaction has been recorded")
                     }
                 }
             }
@@ -1700,7 +1765,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                     val remoteUpdated = ApiClient.getService().reactToPost(postId, ReactionRequest(myId, type))
                     postDao.updatePost(remoteUpdated)
                 } catch (e: Exception) {
-                    // Fail-safe
+                    // Revert to original post state on server failure
+                    postDao.updatePost(post)
+                    _toastMessage.emit("Failed to record reaction. Please try again.")
                 }
             }
         }
@@ -2219,12 +2286,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
     // Database pre-population logic
     private fun prepopulateDb() {
         viewModelScope.launch {
+            // Clean up legacy dummy IDs and stale on-disk cached mock users from previous compilations
+            userDao.deleteUserById("user_test_citizen")
+            userDao.deleteUserById("default_king")
+            userDao.deleteUserById("default_queen")
+            userDao.deleteUserById("default_king_id")
+            userDao.deleteUserById("default_queen_id")
+            userDao.deleteUserById("dr.linusvance@oneearth.io")
+            userDao.deleteUserById("sovereignqueenelena@oneearth.io")
+            userDao.deleteUserById("dr.louisvance@oneearth.io")
+            userDao.deleteUserById("dr.louisvance")
+            userDao.deleteUserById("dr.linusvance")
+            userDao.deleteUserById("sovereignqueenelena")
+
             // Check if any missions exist to see if we need prepopulation
             val existingCount = missionDao.getMissionsCount()
             if (existingCount > 0) return@launch // Already pre-populated
-
-            // Clean up legacy dummy IDs from previous compilations
-            userDao.deleteUserById("user_test_citizen")
 
             // Create global active mission objectives
             val missions = listOf(

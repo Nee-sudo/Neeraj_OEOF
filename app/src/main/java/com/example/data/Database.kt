@@ -35,7 +35,8 @@ data class UserEntity(
     val hasVoted: Boolean = false,
     val profilePhoto: String = "",
     val passphrase: String = "1234",
-    val token: String? = null
+    val token: String? = null,
+    val fcmToken: String? = null
 )
 
 data class RoyalSignature(
@@ -137,7 +138,10 @@ data class NotificationEntity(
     val senderName: String = "",
     val senderFlag: String = "",
     val messageText: String = "",
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val roomId: Int? = null,
+    val postId: Int? = null,
+    val userId: String? = null
 )
 
 @Entity(tableName = "imperial_missions")
@@ -187,10 +191,10 @@ interface UserDao {
     @Query("DELETE FROM users WHERE id != 'me'")
     suspend fun deleteAllNonMeUsers()
 
-    @Query("SELECT * FROM users WHERE isCandidate = 1 AND id != 'me' AND id NOT LIKE 'user_%' ORDER BY votesCount DESC, knowledgeCredits DESC")
+    @Query("SELECT * FROM users WHERE isCandidate = 1 AND id NOT LIKE 'user_%' ORDER BY votesCount DESC, knowledgeCredits DESC")
     fun getCandidatesFlow(): Flow<List<UserEntity>>
 
-    @Query("SELECT * FROM users WHERE id != 'me' AND id NOT LIKE 'user_%' ORDER BY (knowledgeCredits + contributionCredits) DESC")
+    @Query("SELECT * FROM users WHERE id NOT LIKE 'user_%' ORDER BY (knowledgeCredits + contributionCredits) DESC")
     fun getLeaderboardUsersFlow(): Flow<List<UserEntity>>
 
     @Query("SELECT * FROM users ORDER BY name ASC")
@@ -406,7 +410,7 @@ interface NotificationDao {
         HallOfLegendsEntity::class,
         NotificationEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

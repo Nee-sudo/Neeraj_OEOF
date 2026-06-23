@@ -1166,8 +1166,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             knowledgeValue = post.knowledgeValue + 1,
                             reactedWiseUsers = reactors.joinToString(",")
                         )
-                        _toastMessage.emit("+1 KC added to author's merit record!")
-                        awardAuthorPoints(post.authorId, kDelta = 5, cDelta = 0)
+                        _toastMessage.emit("Your wise reaction has been recorded")
                     }
                 }
                 "Helpful" -> {
@@ -1186,8 +1185,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             contributionProof = post.contributionProof + 1,
                             reactedHelpfulUsers = reactors.joinToString(",")
                         )
-                        _toastMessage.emit("+1 CC added to author's social action index!")
-                        awardAuthorPoints(post.authorId, kDelta = 0, cDelta = 5)
+                        _toastMessage.emit("Your helpful reaction has been recorded")
                     }
                 }
                 "Inspiring" -> {
@@ -1206,8 +1204,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             reputationImpact = (post.reputationImpact + 1).coerceAtMost(100),
                             reactedInspiringUsers = reactors.joinToString(",")
                         )
-                        _toastMessage.emit("Author's Reputation score elevated by +1%!")
-                        incrementReputation(post.authorId, delta = 1)
+                        _toastMessage.emit("Your inspiring reaction has been recorded")
                     }
                 }
             }
@@ -1219,7 +1216,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val remoteUpdated = ApiClient.getService().reactToPost(postId, ReactionRequest(myId, type))
                     postDao.updatePost(remoteUpdated)
                 } catch (e: Exception) {
-                    // Fail-safe
+                    // Revert to original post state on server failure
+                    postDao.updatePost(post)
+                    _toastMessage.emit("Failed to record reaction. Please try again.")
                 }
             }
         }

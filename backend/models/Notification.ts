@@ -7,4 +7,7 @@ export interface INotification {
   body: string;
   isRead: boolean;
   createdAt: number;
+  roomId?: number;
+  postId?: number;
+  userId?: string;
 }

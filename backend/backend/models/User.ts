@@ -37,6 +37,7 @@ export interface IUser {
   isCouncilMember?: boolean;
   royalSignatureEnabled?: boolean;
   royalTitle?: string;
+  fcmToken?: string;
 }
 
 export const calculateUserRank = (

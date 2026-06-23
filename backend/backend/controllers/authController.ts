@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { getFirestoreDb } from '../config/database';
 import { IUser, calculateUserRank } from '../models/User';
+import { reconcileRanksInDatabase } from './monarchController';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { createNotificationDirectly } from './notificationController';
@@ -217,6 +218,7 @@ export const getUserProfile = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
     const db = getFirestoreDb();
+    await reconcileRanksInDatabase(db);
     const cleanId = String(userId).toLowerCase().trim().replace(/^@/, '');
 
     let user: IUser | null = null;
@@ -307,8 +309,13 @@ export const updateUserProfile = async (req: Request, res: Response) => {
       updatedAt: Date.now()
     };
 
-    // Recalculate dynamic user rank
-    merged.currentRank = calculateUserRank(merged.knowledgeCredits, merged.contributionCredits);
+    // Recalculate dynamic user rank preserving King/Queen status
+    const isMonarch = currentData?.currentRank === "King" || currentData?.currentRank === "Queen";
+    if (isMonarch) {
+      merged.currentRank = currentData.currentRank;
+    } else {
+      merged.currentRank = calculateUserRank(merged.knowledgeCredits, merged.contributionCredits);
+    }
 
     await userDocRef.set(merged);
     res.status(200).json(merged);
@@ -321,6 +328,7 @@ export const updateUserProfile = async (req: Request, res: Response) => {
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
     const db = getFirestoreDb();
+    await reconcileRanksInDatabase(db);
     const snapshot = await db.collection('users').get();
     const usersList: any[] = [];
     if (snapshot && snapshot.docs) {
@@ -388,7 +396,10 @@ export const visitUserProfile = async (req: any, res: Response) => {
       cleanMyId,
       "profile_view",
       "Profile Visited",
-      `${viewerName} viewed your profile.`
+      `${viewerName} viewed your profile.`,
+      undefined,
+      undefined,
+      cleanMyId
     );
 
     res.status(200).json({ success: true, message: "Profile view recorded and notification dispatched." });

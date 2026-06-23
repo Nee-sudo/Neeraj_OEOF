@@ -160,10 +160,10 @@ interface UserDao {
     @Query("DELETE FROM users WHERE id != 'me'")
     suspend fun deleteAllNonMeUsers()
 
-    @Query("SELECT * FROM users WHERE isCandidate = 1 AND id != 'me' AND id NOT LIKE 'user_%' ORDER BY votesCount DESC, knowledgeCredits DESC")
+    @Query("SELECT * FROM users WHERE isCandidate = 1 AND id NOT LIKE 'user_%' ORDER BY votesCount DESC, knowledgeCredits DESC")
     fun getCandidatesFlow(): Flow<List<UserEntity>>
 
-    @Query("SELECT * FROM users WHERE id != 'me' AND id NOT LIKE 'user_%' ORDER BY (knowledgeCredits + contributionCredits) DESC")
+    @Query("SELECT * FROM users WHERE id NOT LIKE 'user_%' ORDER BY (knowledgeCredits + contributionCredits) DESC")
     fun getLeaderboardUsersFlow(): Flow<List<UserEntity>>
 
     @Query("SELECT * FROM users WHERE id != 'me' AND id NOT LIKE 'user_%' ORDER BY name ASC")

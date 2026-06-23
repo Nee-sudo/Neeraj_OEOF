@@ -27,7 +27,10 @@ data class NotificationDTO(
     val title: String,
     val body: String,
     val isRead: Boolean,
-    val createdAt: Long
+    val createdAt: Long,
+    val roomId: Int? = null,
+    val postId: Int? = null,
+    val userId: String? = null
 )
 
 // ==========================================
@@ -55,6 +58,9 @@ interface OneEarthApiService {
 
     @PUT("api/users/{userId}")
     suspend fun updateUserProfile(@Path("userId") userId: String, @Body user: UserEntity): UserEntity
+
+    @PUT("api/users/{userId}")
+    suspend fun updateProfileFields(@Path("userId") userId: String, @Body fields: Map<String, String>): UserEntity
 
     // Post Endpoints
     @GET("api/posts")
@@ -320,7 +326,9 @@ data class RoyalDecreeDTO(
 
 data class CurrentMonarchResponse(
     val success: Boolean,
-    val monarch: CurrentMonarchData?
+    val monarch: CurrentMonarchData?,
+    val king: CurrentMonarchData? = null,
+    val queen: CurrentMonarchData? = null
 )
 
 data class CurrentMonarchData(

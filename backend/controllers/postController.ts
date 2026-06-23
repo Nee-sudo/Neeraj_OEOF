@@ -24,7 +24,10 @@ export function normalizeBackendPost(raw: any): IPost {
       reputationImpact: 100,
       reactedWiseUsers: "",
       reactedHelpfulUsers: "",
-      reactedInspiringUsers: ""
+      reactedInspiringUsers: "",
+      rewardedWiseUsers: "",
+      rewardedHelpfulUsers: "",
+      rewardedInspiringUsers: ""
     };
   }
 
@@ -85,6 +88,10 @@ export function normalizeBackendPost(raw: any): IPost {
   const reactedHelpfulUsers = raw.reactedHelpfulUsers || raw.reacted_helpful_users || "";
   const reactedInspiringUsers = raw.reactedInspiringUsers || raw.reacted_inspiring_users || "";
 
+  const rewardedWiseUsers = raw.rewardedWiseUsers || raw.rewarded_wise_users || "";
+  const rewardedHelpfulUsers = raw.rewardedHelpfulUsers || raw.rewarded_helpful_users || "";
+  const rewardedInspiringUsers = raw.rewardedInspiringUsers || raw.rewarded_inspiring_users || "";
+
   const returnedPost: IPost = {
     id: cleanId,
     authorId,
@@ -101,7 +108,10 @@ export function normalizeBackendPost(raw: any): IPost {
     reputationImpact,
     reactedWiseUsers,
     reactedHelpfulUsers,
-    reactedInspiringUsers
+    reactedInspiringUsers,
+    rewardedWiseUsers,
+    rewardedHelpfulUsers,
+    rewardedInspiringUsers
   };
 
   if (raw.royalSignature) {
@@ -154,7 +164,10 @@ export const createPost = async (req: Request, res: Response) => {
       reputationImpact: Number(postData.reputationImpact) || 100,
       reactedWiseUsers: "",
       reactedHelpfulUsers: "",
-      reactedInspiringUsers: ""
+      reactedInspiringUsers: "",
+      rewardedWiseUsers: "",
+      rewardedHelpfulUsers: "",
+      rewardedInspiringUsers: ""
     };
 
     // Autofill royal signature for valid Monarch authors
@@ -187,40 +200,49 @@ export const reactToPost = async (req: Request, res: Response) => {
     const { postId } = req.params;
     const { userId, reactionType } = req.body;
     
-    if (!userId || !reactionType) {
-       res.status(400).json({ error: "userId and reactionType are required." });
+    if (!reactionType) {
+       res.status(400).json({ error: "reactionType is required." });
        return;
     }
 
     const db = getFirestoreDb();
-    const actorId = (req as any).userId || userId;
-    const cleanUserId = String(actorId).trim();
+    // Use authenticated user ID or body/query fallback
+    const cleanUserId = String((req as any).userId || (req as any).user?.id || userId || "").trim();
+    
+    if (!cleanUserId || cleanUserId === "undefined" || cleanUserId === "") {
+      res.status(401).json({ error: "User must be authenticated." });
+      return;
+    }
+
     const cleanType = String(reactionType).toLowerCase().trim();
 
     let reactedField: 'reactedWiseUsers' | 'reactedHelpfulUsers' | 'reactedInspiringUsers' = 'reactedWiseUsers';
+    let rewardedField: 'rewardedWiseUsers' | 'rewardedHelpfulUsers' | 'rewardedInspiringUsers' = 'rewardedWiseUsers';
     let counterField: 'knowledgeValue' | 'contributionProof' | 'reputationImpact' = 'knowledgeValue';
     let creditsAward = { kb: 0, cb: 0 };
 
     if (cleanType.includes('wise') || cleanType.includes('🧠')) {
       reactedField = 'reactedWiseUsers';
+      rewardedField = 'rewardedWiseUsers';
       counterField = 'knowledgeValue';
       creditsAward = { kb: 2, cb: 0 };
     } else if (cleanType.includes('helpful') || cleanType.includes('🔥') || cleanType.includes('🤝')) {
       reactedField = 'reactedHelpfulUsers';
+      rewardedField = 'rewardedHelpfulUsers';
       counterField = 'contributionProof';
       creditsAward = { kb: 0, cb: 2 };
     } else {
       reactedField = 'reactedInspiringUsers';
+      rewardedField = 'rewardedInspiringUsers';
       counterField = 'reputationImpact';
       creditsAward = { kb: 1, cb: 1 };
     }
 
     let finalPostResult: IPost | null = null;
-
     let notifyRecipient: string | null = null;
     let notifySender: string | null = null;
 
-    // Run custom dynamic atomic Transaction (Bug #5)
+    // Run dynamic atomic Transaction
     await db.runTransaction(async (transaction) => {
       let postDocRef = db.collection('posts').doc(String(postId));
       let postDoc = await transaction.get(postDocRef);
@@ -235,48 +257,52 @@ export const reactToPost = async (req: Request, res: Response) => {
       }
 
       const post = postDoc.data() as IPost;
+      
+      // Ensure reward lists exist on object
+      if (!post.rewardedWiseUsers) post.rewardedWiseUsers = "";
+      if (!post.rewardedHelpfulUsers) post.rewardedHelpfulUsers = "";
+      if (!post.rewardedInspiringUsers) post.rewardedInspiringUsers = "";
+
       const currentReactedStr = post[reactedField] || "";
       let reactedList = currentReactedStr.split(',').map(s => s.trim()).filter(Boolean);
 
       let isAdded = false;
       if (reactedList.includes(cleanUserId)) {
         reactedList = reactedList.filter(id => id !== cleanUserId);
-        post[counterField] = Math.max(0, post[counterField] - 1);
       } else {
         reactedList.push(cleanUserId);
-        post[counterField] = (post[counterField] || 0) + 1;
         isAdded = true;
       }
 
       post[reactedField] = reactedList.join(',');
 
-      // Choose rewarded history field based on reactedField to prevent double credit allocation
-      const rewardedField = reactedField === 'reactedWiseUsers' ? 'rewardedWiseUsers' :
-                            reactedField === 'reactedHelpfulUsers' ? 'rewardedHelpfulUsers' :
-                            'rewardedInspiringUsers';
-
-      const currentRewardedStr = (post as any)[rewardedField] || "";
-      let rewardedList = currentRewardedStr.split(',').map((s: string) => s.trim()).filter(Boolean);
+      // Retrieve permanent rewarded list
+      const currentRewardedStr = post[rewardedField] || "";
+      let rewardedList = currentRewardedStr.split(',').map(s => s.trim()).filter(Boolean);
 
       let awardCredits = false;
-      if (isAdded) {
-        if (!rewardedList.includes(cleanUserId)) {
-          rewardedList.push(cleanUserId);
-          (post as any)[rewardedField] = rewardedList.join(',');
-          awardCredits = true;
-        }
+      if (isAdded && !rewardedList.includes(cleanUserId)) {
+        rewardedList.push(cleanUserId);
+        post[rewardedField] = rewardedList.join(',');
+        awardCredits = true;
       }
 
-      // If award is earned, fetch dynamic author update details BEFORE writing anything
+      // Recalculate counter from active reacted array
+      if (counterField === 'reputationImpact') {
+        post[counterField] = 100 + reactedList.length;
+      } else {
+        post[counterField] = reactedList.length;
+      }
+
+      // Author reward updates
       let authorToUpdate: any = null;
       let authorDocRef: any = null;
-      if (isAdded && awardCredits && post.authorId) {
+      if (awardCredits && post.authorId) {
         const authorIdClean = post.authorId.toLowerCase().trim().replace(/^@/, '');
         authorDocRef = db.collection('users').doc(authorIdClean);
         let authorDoc = await transaction.get(authorDocRef);
         
         if (!authorDoc.exists) {
-          // Query by email/username
           const emailQuery = await db.collection('users').where('email', '==', authorIdClean).get();
           if (!emailQuery.empty) {
             authorDocRef = emailQuery.docs[0].ref;
@@ -295,19 +321,21 @@ export const reactToPost = async (req: Request, res: Response) => {
           authorToUpdate.knowledgeCredits = (authorToUpdate.knowledgeCredits || 0) + creditsAward.kb;
           authorToUpdate.contributionCredits = (authorToUpdate.contributionCredits || 0) + creditsAward.cb;
           authorToUpdate.reputationScore = Math.min(100, (authorToUpdate.reputationScore || 98) + 1);
-          authorToUpdate.currentRank = calculateUserRank(authorToUpdate.knowledgeCredits, authorToUpdate.contributionCredits);
+          const isMonarch = authorToUpdate.currentRank === "King" || authorToUpdate.currentRank === "Queen";
+          if (!isMonarch) {
+            authorToUpdate.currentRank = calculateUserRank(authorToUpdate.knowledgeCredits, authorToUpdate.contributionCredits);
+          }
         }
       }
 
-      // NOW PERFORM ALL atomic writes (sets) together after all transaction reads
+      // Save transactions atomic operations
       transaction.set(postDocRef, post);
       if (authorToUpdate && authorDocRef) {
         transaction.set(authorDocRef, authorToUpdate);
       }
 
-      // Save reaction notification details to be triggered after successful transaction
       const postAuthorId = post.authorId || (post as any).author_id;
-      if (isAdded && postAuthorId && postAuthorId.toLowerCase().trim() !== cleanUserId.toLowerCase().trim()) {
+      if (awardCredits && postAuthorId && postAuthorId.toLowerCase().trim() !== cleanUserId.toLowerCase().trim()) {
         notifyRecipient = postAuthorId;
         notifySender = cleanUserId;
       }
@@ -316,21 +344,19 @@ export const reactToPost = async (req: Request, res: Response) => {
     });
 
     if (finalPostResult) {
-      // Trigger notification after transaction successfully commits to avoid lockups
       if (notifyRecipient && notifySender) {
         try {
           const userDoc = await db.collection('users').doc(notifySender!).get();
           const userName = userDoc.exists ? (userDoc.data() as any).name : "Someone";
           
-          console.log(`[DEBUG REACTION NOTIFICATION] reactionType: ${reactionType}, postId: ${postId}, postAuthorId: ${notifyRecipient}, reactorId: ${notifySender}, recipientId: ${notifyRecipient}`);
-          console.log("[DEBUG REACTION NOTIFICATION] executing createNotificationDirectly()...");
-
           await createNotificationDirectly(
             notifyRecipient!,
             notifySender!,
             "reaction",
             "New Reaction on your Post",
-            `${userName} reacted with ${reactionType} to your post.`
+            `${userName} reacted with ${reactionType} to your post.`,
+            undefined,
+            Number(finalPostResult.id)
           );
         } catch (e) {
           console.error("Reaction notification error:", e);
@@ -428,7 +454,9 @@ export const addComment = async (req: Request, res: Response) => {
             commentAuthorEmail,
             "comment",
             "New Comment on your Post",
-            `${comment.authorName} commented: "${comment.content.substring(0, 40)}${comment.content.length > 40 ? '...' : ''}"`
+            `${comment.authorName} commented: "${comment.content.substring(0, 40)}${comment.content.length > 40 ? '...' : ''}"`,
+            undefined,
+            Number(postId)
           );
         }
       }

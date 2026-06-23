@@ -1,7 +1,80 @@
 import { Request, Response } from 'express';
 import { MonarchService } from '../services/MonarchService';
 import { getFirestoreDb } from '../config/database';
+import { calculateUserRank } from '../models/User';
 import crypto from 'crypto';
+
+export const reconcileRanksInDatabase = async (db: any) => {
+  try {
+    const snapshot = await db.collection('users').get();
+    if (!snapshot || snapshot.empty) return { king: null, queen: null };
+
+    const users = snapshot.docs.map((doc: any) => ({
+      _id: doc.id,
+      ...doc.data()
+    }));
+
+    // Find candidate Kings (males)
+    const males = users.filter((u: any) => u.gender && u.gender.toLowerCase() === 'male');
+    males.sort((a: any, b: any) => {
+      const creditsA = (a.knowledgeCredits || 0) + (a.contributionCredits || 0);
+      const creditsB = (b.knowledgeCredits || 0) + (b.contributionCredits || 0);
+      return creditsB - creditsA;
+    });
+
+    // Find candidate Queens (females)
+    const females = users.filter((u: any) => u.gender && u.gender.toLowerCase() === 'female');
+    females.sort((a: any, b: any) => {
+      const creditsA = (a.knowledgeCredits || 0) + (a.contributionCredits || 0);
+      const creditsB = (b.knowledgeCredits || 0) + (b.contributionCredits || 0);
+      return creditsB - creditsA;
+    });
+
+    const king = males[0] || null;
+    const queen = females[0] || null;
+
+    // Write updates to database to ensure only one King and one Queen at a time.
+    for (const u of users) {
+      let changed = false;
+      let newRank = u.currentRank;
+
+      if (king && u._id === king._id) {
+        if (u.currentRank !== 'King') {
+          newRank = 'King';
+          changed = true;
+        }
+      } else if (queen && u._id === queen._id) {
+        if (u.currentRank !== 'Queen') {
+          newRank = 'Queen';
+          changed = true;
+        }
+      } else {
+        if (u.currentRank === 'King' || u.currentRank === 'Queen') {
+          newRank = calculateUserRank(
+            u.knowledgeCredits || 0,
+            u.contributionCredits || 0,
+            u.reputationScore || 25,
+            u.civicParticipationScore || 0,
+            u.legacyPoints || 0
+          );
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        await db.collection('users').doc(u._id).update({
+          currentRank: newRank
+        });
+        u.currentRank = newRank;
+      }
+    }
+
+    return { king, queen };
+  } catch (error) {
+    console.error("Error reconciling ranks in database:", error);
+    return { king: null, queen: null };
+  }
+};
 
 export const postRoyalDecree = async (req: Request, res: Response) => {
   try {
@@ -40,33 +113,39 @@ export const postRoyalDecree = async (req: Request, res: Response) => {
 export const getCurrentMonarch = async (req: Request, res: Response) => {
   try {
     const db = getFirestoreDb();
+    const { king, queen } = await reconcileRanksInDatabase(db);
     
-    // Find users with Rank King or Queen
-    const kingSnapshot = await db.collection('users').where('currentRank', '==', 'King').get();
-    let monarchDoc = kingSnapshot.empty ? null : kingSnapshot.docs[0];
+    const monarch = king || queen || null;
     
-    if (!monarchDoc) {
-      const queenSnapshot = await db.collection('users').where('currentRank', '==', 'Queen').get();
-      monarchDoc = queenSnapshot.empty ? null : queenSnapshot.docs[0];
-    }
-    
-    if (!monarchDoc) {
-      return res.json({ success: true, monarch: null, message: "Throne currently vacant. Next election pending." });
-    }
-    
-    const data = monarchDoc.data();
-    // Return sanitized monarch profile
     return res.json({
       success: true,
-      monarch: {
-        id: data.id,
-        name: data.name,
-        username: data.username,
-        currentRank: data.currentRank,
-        auraLevel: data.auraLevel || 'None',
-        bio: data.bio || '',
-        profilePhoto: data.profilePhoto || ''
-      }
+      monarch: monarch ? {
+        id: monarch._id,
+        name: monarch.name,
+        username: monarch.username,
+        currentRank: monarch.currentRank,
+        auraLevel: monarch.auraLevel || 'None',
+        bio: monarch.bio || '',
+        profilePhoto: monarch.profilePhoto || ''
+      } : null,
+      king: king ? {
+        id: king._id,
+        name: king.name,
+        username: king.username,
+        currentRank: king.currentRank,
+        auraLevel: king.auraLevel || 'None',
+        bio: king.bio || '',
+        profilePhoto: king.profilePhoto || ''
+      } : null,
+      queen: queen ? {
+        id: queen._id,
+        name: queen.name,
+        username: queen.username,
+        currentRank: queen.currentRank,
+        auraLevel: queen.auraLevel || 'None',
+        bio: queen.bio || '',
+        profilePhoto: queen.profilePhoto || ''
+      } : null
     });
   } catch (error: any) {
     console.error('❌ MonarchController getCurrentMonarch error:', error.message);
