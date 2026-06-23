@@ -2053,7 +2053,7 @@ fun MainDashboardView(viewModel: AppViewModel, snackbarHostState: SnackbarHostSt
                                             modifier = Modifier.heightIn(max = 400.dp),
                                             verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            items(notifications) { notif ->
+                                            items(items = notifications, key = { it.id }) { notif ->
                                                 val icon = when (notif.type) {
                                                     "message" -> Icons.Default.QuestionAnswer
                                                     "comment" -> Icons.Default.Comment
@@ -3166,6 +3166,19 @@ fun PublicSquareTab(viewModel: AppViewModel) {
     val visiblePosts = remember(posts, lastVisiblePostIndex) {
         posts.take(lastVisiblePostIndex)
     }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    androidx.compose.runtime.LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val totalItemsNumber = layoutInfo.totalItemsCount
+            val lastVisibleItemIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItemsNumber > 0 && lastVisibleItemIndex >= (totalItemsNumber * 0.70).toInt()
+        }.collect { shouldLoadMore ->
+            if (shouldLoadMore && posts.size > lastVisiblePostIndex) {
+                lastVisiblePostIndex = (lastVisiblePostIndex + 20).coerceAtMost(posts.size)
+            }
+        }
+    }
     val currentUser by viewModel.currentUserFlow.collectAsState()
     var postContent by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Inquiry") }
@@ -3218,11 +3231,12 @@ fun PublicSquareTab(viewModel: AppViewModel) {
 
             // Merit ranked Scroll feed
             LazyColumn(
+                state = listState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(visiblePosts) { post ->
+                items(items = visiblePosts, key = { it.id }) { post ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3640,7 +3654,7 @@ fun PublicSquareTab(viewModel: AppViewModel) {
                                 }
                             }
                         } else {
-                            items(commentsList) { comment ->
+                            items(items = commentsList, key = { it.id }) { comment ->
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = CharcoalObsidian.copy(alpha = 0.5f)),
                                     shape = RoundedCornerShape(8.dp)
@@ -3937,6 +3951,20 @@ fun FindFriendsTab(viewModel: AppViewModel) {
         filteredAndSortedFriends.take(lastVisibleIndex)
     }
 
+    val friendsListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    androidx.compose.runtime.LaunchedEffect(friendsListState) {
+        androidx.compose.runtime.snapshotFlow {
+            val layoutInfo = friendsListState.layoutInfo
+            val totalItemsNumber = layoutInfo.totalItemsCount
+            val lastVisibleItemIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItemsNumber > 0 && lastVisibleItemIndex >= (totalItemsNumber * 0.70).toInt()
+        }.collect { shouldLoadMore ->
+            if (shouldLoadMore && filteredAndSortedFriends.size > lastVisibleIndex) {
+                lastVisibleIndex = (lastVisibleIndex + 20).coerceAtMost(filteredAndSortedFriends.size)
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -4044,6 +4072,7 @@ fun FindFriendsTab(viewModel: AppViewModel) {
         }
 
         LazyColumn(
+            state = friendsListState,
             modifier = Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 80.dp)
@@ -4062,7 +4091,7 @@ fun FindFriendsTab(viewModel: AppViewModel) {
                     }
                 }
             } else {
-                items(visibleFriends) { friend ->
+                items(items = visibleFriends, key = { it.id }) { friend ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -4615,7 +4644,7 @@ fun MessagingTab(viewModel: AppViewModel) {
                         }
                     }
                 } else {
-                    items(activeRooms) { room ->
+                    items(items = activeRooms, key = { it.id }) { room ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -4708,7 +4737,7 @@ fun MessagingTab(viewModel: AppViewModel) {
                         )
                     }
                 } else {
-                    items(waitingRooms) { room ->
+                    items(items = waitingRooms, key = { it.id }) { room ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()

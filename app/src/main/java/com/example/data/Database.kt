@@ -191,6 +191,9 @@ interface UserDao {
     @Query("DELETE FROM users WHERE id != 'me'")
     suspend fun deleteAllNonMeUsers()
 
+    @Query("DELETE FROM users WHERE id != 'me' AND id NOT IN (:ids)")
+    suspend fun pruneStaleUsers(ids: List<String>)
+
     @Query("SELECT * FROM users WHERE isCandidate = 1 AND id NOT LIKE 'user_%' ORDER BY votesCount DESC, knowledgeCredits DESC")
     fun getCandidatesFlow(): Flow<List<UserEntity>>
 
@@ -229,6 +232,9 @@ interface PostDao {
 
     @Query("DELETE FROM posts")
     suspend fun deleteAllPosts()
+
+    @Query("DELETE FROM posts WHERE id NOT IN (:ids)")
+    suspend fun pruneStalePosts(ids: List<Int>)
 }
 
 @Dao
@@ -323,6 +329,9 @@ interface ChatDao {
     @Query("DELETE FROM chat_rooms")
     suspend fun deleteAllRooms()
 
+    @Query("DELETE FROM chat_rooms WHERE id NOT IN (:ids)")
+    suspend fun pruneStaleRooms(ids: List<Int>)
+
     @Query("DELETE FROM chat_messages")
     suspend fun deleteAllMessages()
 }
@@ -391,6 +400,9 @@ interface NotificationDao {
 
     @Query("DELETE FROM notifications")
     suspend fun deleteAllNotifications()
+
+    @Query("DELETE FROM notifications WHERE id NOT IN (:ids)")
+    suspend fun pruneStaleNotifications(ids: List<String>)
 }
 
 // ==========================================

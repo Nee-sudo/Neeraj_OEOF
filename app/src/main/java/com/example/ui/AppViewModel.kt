@@ -868,11 +868,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 // 1. Sync Posts from Backend
                 try {
                     val remotePosts = ApiClient.getService().getPosts()
-                    postDao.deleteAllPosts()
                     if (remotePosts.isNotEmpty()) {
                         remotePosts.forEach { post ->
                             postDao.insertPost(post)
                         }
+                        val remoteIds = remotePosts.map { it.id }
+                        postDao.pruneStalePosts(remoteIds)
+                    } else {
+                        postDao.deleteAllPosts()
                     }
                 } catch (postEx: Exception) {
                     android.util.Log.e("AppViewModel", "Sync Posts Error: ${postEx.message}", postEx)
@@ -881,11 +884,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 // 2. Sync Chat Rooms from Backend
                 try {
                     val remoteRooms = ApiClient.getService().getChatRooms(me?.name)
-                    chatDao.deleteAllRooms()
                     if (remoteRooms.isNotEmpty()) {
                         remoteRooms.forEach { room ->
                             chatDao.insertRoom(room)
                         }
+                        val remoteIds = remoteRooms.map { it.id }
+                        chatDao.pruneStaleRooms(remoteIds)
+                    } else {
+                        chatDao.deleteAllRooms()
                     }
                 } catch (roomEx: Exception) {
                     android.util.Log.e("AppViewModel", "Sync Chat Rooms Error: ${roomEx.message}", roomEx)
@@ -894,8 +900,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 // 3. Sync All Users from Cloud to Local Friends List
                 try {
                     val remoteUsers = ApiClient.getService().getAllUsers()
-                    userDao.deleteAllNonMeUsers()
                     if (remoteUsers.isNotEmpty()) {
+                        val insertedUserIds = mutableListOf<String>()
                         remoteUsers.forEach { user ->
                             // Skip local logged-in user profile to prevent self duplicates
                             val matchesMe = me != null && (
@@ -904,12 +910,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             )
                             if (!matchesMe && user.email.isNotBlank()) {
                                 // Map the received user entity into sqlite with their email as secondary key ID
-                                val friendEntity = user.copy(
-                                    id = user.email.lowercase().trim()
-                                )
+                                val friendId = user.email.lowercase().trim()
+                                val friendEntity = user.copy(id = friendId)
                                 userDao.insertUser(friendEntity)
+                                insertedUserIds.add(friendId)
                             }
                         }
+                        if (insertedUserIds.isNotEmpty()) {
+                            userDao.pruneStaleUsers(insertedUserIds)
+                        } else {
+                            userDao.deleteAllNonMeUsers()
+                        }
+                    } else {
+                        userDao.deleteAllNonMeUsers()
                     }
                 } catch (userEx: Exception) {
                     android.util.Log.e("AppViewModel", "Sync Users Error: ${userEx.message}", userEx)
@@ -918,7 +931,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 // 4. Sync Notifications from Backend
                 try {
                     val remoteNotifs = ApiClient.getService().getNotifications()
-                    notificationDao.deleteAllNotifications()
                     if (remoteNotifs.isNotEmpty()) {
                         val mapped = remoteNotifs.map { dto ->
                             if (dto.type == "profile_view") {
@@ -955,6 +967,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             )
                         }
                         notificationDao.insertNotifications(mapped)
+                        val remoteIds = remoteNotifs.map { it.id }
+                        notificationDao.pruneStaleNotifications(remoteIds)
+                    } else {
+                        notificationDao.deleteAllNotifications()
                     }
                 } catch (notifEx: Exception) {
                     android.util.Log.e("AppViewModel", "Sync Notifications Error: ${notifEx.message}", notifEx)
