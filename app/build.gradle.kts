@@ -13,11 +13,11 @@ android {
   compileSdk = 36
 
   defaultConfig {
-    applicationId = "com.example.oneearth"
+    applicationId = "com.aistudio.oneearth.uxmsrp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 3
-    versionName = "1.0.2"
+    versionCode = 12
+    versionName = "1.1.2"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

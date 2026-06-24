@@ -274,6 +274,47 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     const currentData = userDoc.data() as IUser;
     const requesterId = (req as any).userId;
 
+    // FIX #3: PREVENT FLAG CHANGES AFTER FINAL SELECTION
+    const hasExistingFlag = currentData.flagEmoji && currentData.flagEmoji !== "🌍" && currentData.flagEmoji !== "";
+    if (hasExistingFlag) {
+      delete updateData.flagEmoji;
+      delete updateData.territory;
+    }
+
+    // FIX #4: USERNAME UNIQUENESS VALIDATION
+    if (updateData.username !== undefined) {
+      const rawNewUsername = String(updateData.username).trim().toLowerCase();
+      const cleanNewUsername = rawNewUsername.startsWith('@') ? rawNewUsername.substring(1) : rawNewUsername;
+      const targetUsername = `@${cleanNewUsername}`;
+
+      const rawCurrentUsername = currentData.username ? currentData.username.trim().toLowerCase() : "";
+      const cleanCurrentUsername = rawCurrentUsername.startsWith('@') ? rawCurrentUsername.substring(1) : rawCurrentUsername;
+
+      if (cleanNewUsername !== cleanCurrentUsername) {
+        // Query to check if the new username already exists case-insensitively
+        const allUsersQuery = await db.collection('users').get();
+        let isTaken = false;
+        for (const doc of allUsersQuery.docs) {
+          const docData = doc.data() as IUser;
+          if (docData.id.toLowerCase() === currentData.id.toLowerCase()) {
+            continue;
+          }
+          const otherUsername = docData.username ? docData.username.trim().toLowerCase() : "";
+          const otherClean = otherUsername.startsWith('@') ? otherUsername.substring(1) : otherUsername;
+          if (otherClean === cleanNewUsername) {
+            isTaken = true;
+            break;
+          }
+        }
+
+        if (isTaken) {
+          res.status(400).json({ error: "Username already taken" });
+          return;
+        }
+      }
+      updateData.username = targetUsername;
+    }
+
     // Server-side Vote Deduplication (Bug #10)
     if (updateData.votesCount !== undefined && updateData.votesCount > (currentData.votesCount || 0)) {
        if (requesterId) {

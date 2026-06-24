@@ -755,28 +755,47 @@ fun RegistrationView(viewModel: AppViewModel) {
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
         )
 
-        OutlinedTextField(
-            value = dob,
-            onValueChange = { newValue ->
-                val digitsAndDashes = newValue.filter { it.isDigit() || it == '-' }
-                if (digitsAndDashes.length <= 10) {
-                    dob = digitsAndDashes
-                }
-            },
-            label = { Text("Date of Birth (YYYY-MM-DD)") },
-            leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null, tint = RegalGold) },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = RegalGold,
-                unfocusedBorderColor = MutedSlate.copy(alpha = 0.5f),
-                focusedLabelColor = RegalGold,
-                unfocusedLabelColor = MutedSlate,
-                focusedTextColor = GhostWhite,
-                unfocusedTextColor = GhostWhite
-            ),
-            shape = RoundedCornerShape(12.dp),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-        )
+        val context = LocalContext.current
+        val calendar = remember { java.util.Calendar.getInstance() }
+        val datePickerDialog = remember {
+            android.app.DatePickerDialog(
+                context,
+                { _, year, month, dayOfMonth ->
+                    val formattedMonth = String.format("%02d", month + 1)
+                    val formattedDay = String.format("%02d", dayOfMonth)
+                    dob = "$year-$formattedMonth-$formattedDay"
+                },
+                calendar.get(java.util.Calendar.YEAR),
+                calendar.get(java.util.Calendar.MONTH),
+                calendar.get(java.util.Calendar.DAY_OF_MONTH)
+            ).apply {
+                datePicker.maxDate = System.currentTimeMillis()
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+                .clickable { datePickerDialog.show() }
+        ) {
+            OutlinedTextField(
+                value = dob,
+                onValueChange = { },
+                readOnly = true,
+                enabled = false,
+                label = { Text("Date of Birth (YYYY-MM-DD)") },
+                leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null, tint = RegalGold) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledBorderColor = MutedSlate.copy(alpha = 0.5f),
+                    disabledLabelColor = MutedSlate,
+                    disabledTextColor = GhostWhite,
+                    disabledLeadingIconColor = RegalGold
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         // Gender Selection Segment
         Text(
@@ -860,218 +879,7 @@ fun RegistrationView(viewModel: AppViewModel) {
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
         )
 
-        // Territory / Country Flag Selection
-        Text(
-            text = "Broadcast Territory Flag",
-            style = androidx.compose.ui.text.TextStyle(
-                color = MutedSlate,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
-            ),
-            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp).align(Alignment.Start)
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            val flags = listOf(
-                Pair("🇮🇳", "India"),
-                Pair("🇫🇷", "France"),
-                Pair("🇰🇪", "Kenya"),
-                Pair("🇧🇷", "Brazil"),
-                Pair("🇯🇵", "Japan")
-            )
-            flags.forEach { pair ->
-                val isSelected = selectedFlag == pair.first
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSelected) RegalGold.copy(alpha = 0.15f) else CharcoalObsidian
-                    ),
-                    border = BorderStroke(
-                        width = 1.5.dp,
-                        color = if (isSelected) RegalGold else MutedSlate.copy(alpha = 0.3f)
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp)
-                        .clickable { selectedFlag = pair.first }
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(pair.first, fontSize = 20.sp)
-                        Text(pair.second, color = if (isSelected) RegalGold else MutedSlate, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            // More Countries / Custome trigger
-            val hasCustomSelect = flags.none { it.first == selectedFlag }
-            val labelText = if (hasCustomSelect) {
-                TerritoryDatabase.list.find { it.flag == selectedFlag }?.name?.take(8) ?: "Selected"
-            } else "More"
-
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (hasCustomSelect) RegalGold.copy(alpha = 0.15f) else CharcoalObsidian
-                ),
-                border = BorderStroke(
-                    width = 1.5.dp,
-                    color = if (hasCustomSelect) RegalGold else RegalGold.copy(alpha = 0.4f)
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .weight(1.1f)
-                    .height(52.dp)
-                    .clickable { showAllFlagsDialog = true }
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(if (hasCustomSelect) selectedFlag else "🌍", fontSize = 20.sp)
-                    Text(labelText, color = RegalGold, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                }
-            }
-        }
-
-        if (showAllFlagsDialog) {
-            Dialog(onDismissRequest = { showAllFlagsDialog = false }) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = VelvetCard),
-                    border = BorderStroke(1.5.dp, RegalGold),
-                    shape = RoundedCornerShape(24.dp),
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.85f)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "Select Global Territory",
-                            color = GhostWhite,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        
-                        // Region pills row
-                        Row(
-                            modifier = Modifier
-                                .horizontalScroll(rememberScrollState())
-                                .padding(bottom = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val regions = listOf("All", "Africa", "Asia", "Europe", "North America", "South America", "Oceania")
-                            regions.forEach { region ->
-                                val isSel = selectedRegionFilter == region
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isSel) RegalGold else CharcoalObsidian
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.clickable { selectedRegionFilter = region }
-                                ) {
-                                    Text(
-                                        text = region,
-                                        color = if (isSel) CharcoalObsidian else GhostWhite,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                        }
-                        
-                        // Search text field
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search territory...", color = MutedSlate) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = GhostWhite,
-                                unfocusedTextColor = GhostWhite,
-                                focusedBorderColor = RegalGold,
-                                unfocusedBorderColor = MutedSlate.copy(alpha = 0.5f)
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp)
-                        )
-                        
-                        // List of matching territories
-                        val filtered = TerritoryDatabase.list.filter {
-                            (selectedRegionFilter == "All" || it.region.equals(selectedRegionFilter, ignoreCase = true)) &&
-                            (it.name.contains(searchQuery, ignoreCase = true) || it.capital.contains(searchQuery, ignoreCase = true))
-                        }
-                        
-                        LazyColumn(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(filtered) { item ->
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (selectedFlag == item.flag) RegalGold.copy(alpha = 0.15f) else CharcoalObsidian
-                                    ),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        if (selectedFlag == item.flag) RegalGold else MutedSlate.copy(alpha = 0.2f)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            selectedFlag = item.flag
-                                            showAllFlagsDialog = false
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(item.flag, fontSize = 28.sp)
-                                        Spacer(modifier = Modifier.width(16.dp))
-                                        Column {
-                                            Text(item.name, color = GhostWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                            Text("Capital: ${item.capital}  •  Pop: ${item.population}", color = MutedSlate, fontSize = 11.sp)
-                                        }
-                                    }
-                                }
-                            }
-                            if (filtered.isEmpty()) {
-                                item {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(32.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("No territories found.", color = MutedSlate, fontSize = 13.sp)
-                                    }
-                                }
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = { showAllFlagsDialog = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = CharcoalObsidian),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Dismiss", color = GhostWhite)
-                        }
-                    }
-                }
-            }
-        }
+        Spacer(modifier = Modifier.height(24.dp))
 
         // Activation Button (One Word)
         Button(
@@ -1085,9 +893,8 @@ fun RegistrationView(viewModel: AppViewModel) {
                 viewModel.tempDob = dob
                 viewModel.tempPassword = password
                 viewModel.tempGender = selectedGender
-                viewModel.selectedFlag = selectedFlag
-                val matchedCountry = TerritoryDatabase.list.find { it.flag == selectedFlag }
-                viewModel.selectedTerritory = matchedCountry?.name ?: "India"
+                viewModel.selectedFlag = "🇮🇳" // default, will be aligned in TerritorySelectionView post-registration
+                viewModel.selectedTerritory = "India"
                 showOtpDialog = true
             },
             colors = ButtonDefaults.buttonColors(containerColor = RegalGold),
@@ -2722,28 +2529,39 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                     )
 
+                    val isFlagLocked = !user.flagEmoji.isNullOrBlank() && user.flagEmoji != "🌍"
                     OutlinedTextField(
                         value = editTerritory,
-                        onValueChange = { editTerritory = it },
-                        label = { Text("Territory Representation") },
+                        onValueChange = { if (!isFlagLocked) editTerritory = it },
+                        readOnly = isFlagLocked,
+                        enabled = !isFlagLocked,
+                        label = { Text(if (isFlagLocked) "Territory (Locked)" else "Territory Representation") },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = textPrimaryColor,
                             unfocusedTextColor = textPrimaryColor,
                             focusedBorderColor = RegalGold,
-                            unfocusedBorderColor = MutedSlate
+                            unfocusedBorderColor = MutedSlate,
+                            disabledTextColor = textPrimaryColor.copy(alpha = 0.6f),
+                            disabledBorderColor = MutedSlate.copy(alpha = 0.3f),
+                            disabledLabelColor = MutedSlate
                         ),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                     )
 
                     OutlinedTextField(
                         value = editFlagEmoji,
-                        onValueChange = { editFlagEmoji = it },
-                        label = { Text("Flag Emoji") },
+                        onValueChange = { if (!isFlagLocked) editFlagEmoji = it },
+                        readOnly = isFlagLocked,
+                        enabled = !isFlagLocked,
+                        label = { Text(if (isFlagLocked) "Flag Emoji (Locked)" else "Flag Emoji") },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = textPrimaryColor,
                             unfocusedTextColor = textPrimaryColor,
                             focusedBorderColor = RegalGold,
-                            unfocusedBorderColor = MutedSlate
+                            unfocusedBorderColor = MutedSlate,
+                            disabledTextColor = textPrimaryColor.copy(alpha = 0.6f),
+                            disabledBorderColor = MutedSlate.copy(alpha = 0.3f),
+                            disabledLabelColor = MutedSlate
                         ),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                     )
@@ -3191,43 +3009,6 @@ fun PublicSquareTab(viewModel: AppViewModel) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().imePadding()) {
-            // Screen Title + Manual Refresh Action Row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Global Public Square",
-                        color = GhostWhite,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Citizen dialogues on merit, knowledge, & contribution",
-                        color = MutedSlate,
-                        fontSize = 11.sp
-                    )
-                }
-                IconButton(
-                    onClick = { viewModel.syncAllWithBackend() },
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(RegalGold.copy(alpha = 0.15f))
-                        .size(38.dp)
-                ) {
-                    Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Default.Refresh,
-                        contentDescription = "Sync Feed",
-                        tint = RegalGold,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
 
             // Merit ranked Scroll feed
             LazyColumn(
@@ -6470,28 +6251,39 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
                         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                     )
 
+                    val isFlagLocked = me?.flagEmoji?.isNotEmpty() == true && me?.flagEmoji != "🌍"
                     OutlinedTextField(
                         value = editTerritory,
-                        onValueChange = { editTerritory = it },
-                        label = { Text("Territory Assigned") },
+                        onValueChange = { if (!isFlagLocked) editTerritory = it },
+                        readOnly = isFlagLocked,
+                        enabled = !isFlagLocked,
+                        label = { Text(if (isFlagLocked) "Territory (Locked)" else "Territory Assigned") },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = GhostWhite,
                             unfocusedTextColor = GhostWhite,
                             focusedBorderColor = RegalGold,
-                            unfocusedBorderColor = MutedSlate
+                            unfocusedBorderColor = MutedSlate,
+                            disabledTextColor = GhostWhite.copy(alpha = 0.6f),
+                            disabledBorderColor = MutedSlate.copy(alpha = 0.3f),
+                            disabledLabelColor = MutedSlate
                         ),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                     )
 
                     OutlinedTextField(
                         value = editFlagEmoji,
-                        onValueChange = { editFlagEmoji = it },
-                        label = { Text("Territory Emoji Flag") },
+                        onValueChange = { if (!isFlagLocked) editFlagEmoji = it },
+                        readOnly = isFlagLocked,
+                        enabled = !isFlagLocked,
+                        label = { Text(if (isFlagLocked) "Territory Emoji Flag (Locked)" else "Territory Emoji Flag") },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = GhostWhite,
                             unfocusedTextColor = GhostWhite,
                             focusedBorderColor = RegalGold,
-                            unfocusedBorderColor = MutedSlate
+                            unfocusedBorderColor = MutedSlate,
+                            disabledTextColor = GhostWhite.copy(alpha = 0.6f),
+                            disabledBorderColor = MutedSlate.copy(alpha = 0.3f),
+                            disabledLabelColor = MutedSlate
                         ),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                     )

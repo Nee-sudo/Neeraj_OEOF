@@ -1305,23 +1305,59 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
     ) {
         viewModelScope.launch {
             val me = userDao.getUserById("me") ?: return@launch
+            val normalizedNewUsername = if (username.trim().startsWith("@")) username.trim() else "@${username.trim()}"
+            val cleanNewUsername = normalizedNewUsername.removePrefix("@").lowercase().trim()
+            val cleanCurrentUsername = me.username.removePrefix("@").lowercase().trim()
+
+            // Check local database for uniqueness
+            if (cleanNewUsername != cleanCurrentUsername) {
+                val localUser = userDao.getUserByEmailOrUsername(cleanNewUsername)
+                if (localUser != null && localUser.id != "me" && localUser.email.lowercase().trim() != me.email.lowercase().trim()) {
+                    _toastMessage.emit("Username already taken")
+                    return@launch
+                }
+            }
+
+            val isFlagLocked = me.flagEmoji.isNotEmpty() && me.flagEmoji != "🌍"
+            val calculatedRank = if (me.currentRank.equals("King", ignoreCase = true) || me.currentRank.equals("Queen", ignoreCase = true)) {
+                me.currentRank
+            } else {
+                getRankFromCredits(me.knowledgeCredits, me.contributionCredits)
+            }
+
             val updated = me.copy(
                 name = name,
-                username = if (username.startsWith("@")) username else "@$username",
+                username = normalizedNewUsername,
                 bio = bio,
-                territory = territory,
-                flagEmoji = flagEmoji,
-                profilePhoto = profilePhoto
+                territory = if (isFlagLocked) me.territory else territory,
+                flagEmoji = if (isFlagLocked) me.flagEmoji else flagEmoji,
+                profilePhoto = profilePhoto,
+                currentRank = calculatedRank
             )
-            saveUserAndRecalculateRank(updated)
-            _toastMessage.emit("Profile paradigm synchronized successfully!")
 
             if (_isBackendConnected.value) {
                 try {
-                    ApiClient.getService().updateUserProfile(me.email.lowercase(), updated)
+                    val remoteUser = ApiClient.getService().updateUserProfile(me.email.lowercase().trim(), updated)
+                    val localMe = remoteUser.copy(id = "me")
+                    userDao.insertUser(localMe)
+                    SocketManager.joinUser(localMe.email)
+                    _toastMessage.emit("Profile paradigm synchronized successfully!")
+                } catch (e: retrofit2.HttpException) {
+                    val errorBody = e.response()?.errorBody()?.string()
+                    if (errorBody != null && errorBody.contains("Username already taken", ignoreCase = true)) {
+                        _toastMessage.emit("Username already taken")
+                    } else {
+                        _toastMessage.emit("Username already taken")
+                    }
+                    return@launch
                 } catch (e: Exception) {
-                    // Fail-safe
+                    _toastMessage.emit("Synchronization error: ${e.message}")
+                    return@launch
                 }
+            } else {
+                userDao.insertUser(updated)
+                SocketManager.joinUser(updated.email)
+                _toastMessage.emit("Profile paradigm synchronized successfully!")
             }
         }
     }
