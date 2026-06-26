@@ -1001,9 +1001,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                 
                 android.util.Log.d("MonarchSync", "📡 [API] Response received: success=${response.success}, hasKing=${response.king != null}, hasQueen=${response.queen != null}")
                 
+                // ✅ Logging actual API response values
+                if (response.king != null) {
+                    val kingKc = response.king.knowledgeCredits
+                    val kingCc = response.king.contributionCredits
+                    android.util.Log.d("MonarchSync", "📡 [API KING] name=${response.king.name}, kc=$kingKc, cc=$kingCc, total=${kingKc + kingCc}")
+                }
+                if (response.queen != null) {
+                    val queenKc = response.queen.knowledgeCredits
+                    val queenCc = response.queen.contributionCredits
+                    android.util.Log.d("MonarchSync", "📡 [API QUEEN] name=${response.queen.name}, kc=$queenKc, cc=$queenCc, total=${queenKc + queenCc}")
+                }
+                
                 if (response.success) {
                     if (response.king != null) {
                         val kingData = response.king
+
                         val kingUser = UserEntity(
                             id = kingData.id,
                             email = "${kingData.username.lowercase().trim()}@oneearth.io",
@@ -1016,12 +1029,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             currentRank = "King",
                             bio = kingData.bio,
                             profilePhoto = kingData.profilePhoto,
-                            knowledgeCredits = 0,
-                            contributionCredits = 0,
+                            knowledgeCredits = kingData.knowledgeCredits,
+                            contributionCredits = kingData.contributionCredits,
                             onboardingCompleted = true,
                             citizenOathAccepted = true
                         )
-                        _currentKing.value = kingUser
                         
                         // Cache King
                         val existingKing = userDao.getUserById(kingData.id)
@@ -1030,16 +1042,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             username = kingData.username,
                             currentRank = "King",
                             bio = kingData.bio,
-                            profilePhoto = kingData.profilePhoto
+                            profilePhoto = kingData.profilePhoto,
+                            knowledgeCredits = kingData.knowledgeCredits,
+                            contributionCredits = kingData.contributionCredits
                         ) ?: kingUser
                         userDao.insertUser(toInsertKing)
-                        android.util.Log.i("MonarchSync", "👑 [SET] KING updated: ${kingUser.name}")
+                        _currentKing.value = toInsertKing
+                        android.util.Log.i("MonarchSync", "👑 [SET] KING updated: ${toInsertKing.name} (KC: ${toInsertKing.knowledgeCredits}, CC: ${toInsertKing.contributionCredits}, Total: ${toInsertKing.knowledgeCredits + toInsertKing.contributionCredits})")
                     } else {
                         _currentKing.value = null
                     }
 
                     if (response.queen != null) {
                         val queenData = response.queen
+
                         val queenUser = UserEntity(
                             id = queenData.id,
                             email = "${queenData.username.lowercase().trim()}@oneearth.io",
@@ -1052,12 +1068,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             currentRank = "Queen",
                             bio = queenData.bio,
                             profilePhoto = queenData.profilePhoto,
-                            knowledgeCredits = 0,
-                            contributionCredits = 0,
+                            knowledgeCredits = queenData.knowledgeCredits,
+                            contributionCredits = queenData.contributionCredits,
                             onboardingCompleted = true,
                             citizenOathAccepted = true
                         )
-                        _currentQueen.value = queenUser
                         
                         // Cache Queen
                         val existingQueen = userDao.getUserById(queenData.id)
@@ -1066,10 +1081,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             username = queenData.username,
                             currentRank = "Queen",
                             bio = queenData.bio,
-                            profilePhoto = queenData.profilePhoto
+                            profilePhoto = queenData.profilePhoto,
+                            knowledgeCredits = queenData.knowledgeCredits,
+                            contributionCredits = queenData.contributionCredits
                         ) ?: queenUser
                         userDao.insertUser(toInsertQueen)
-                        android.util.Log.i("MonarchSync", "👑 [SET] QUEEN updated: ${queenUser.name}")
+                        _currentQueen.value = toInsertQueen
+                        android.util.Log.i("MonarchSync", "👑 [SET] QUEEN updated: ${toInsertQueen.name} (KC: ${toInsertQueen.knowledgeCredits}, CC: ${toInsertQueen.contributionCredits}, Total: ${toInsertQueen.knowledgeCredits + toInsertQueen.contributionCredits})")
                     } else {
                         _currentQueen.value = null
                     }

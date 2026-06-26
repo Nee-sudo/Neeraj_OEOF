@@ -14,19 +14,41 @@ export const reconcileRanksInDatabase = async (db: any) => {
       ...doc.data()
     }));
 
+    console.log("=== RECONCILE RANKS: ALL USERS IN DB ===");
+    let debugText = "=== RECONCILE RANKS: ALL USERS IN DB ===\n";
+    users.forEach((u: any) => {
+      debugText += `User: id=${u._id}, name=${u.name}, username=${u.username}, gender=${u.gender}, kc=${u.knowledgeCredits}, cc=${u.contributionCredits}, u_kc=${u.knowledge_credits}, u_cc=${u.contribution_credits}, rank=${u.currentRank}\n`;
+      console.log(`User: id=${u._id}, name=${u.name}, username=${u.username}, gender=${u.gender}, kc=${u.knowledgeCredits}, cc=${u.contributionCredits}, u_kc=${u.knowledge_credits}, u_cc=${u.contribution_credits}, rank=${u.currentRank}`);
+    });
+    debugText += "========================================\n";
+    console.log("========================================");
+    try {
+      require('fs').writeFileSync('/backend/db_users_debug_backend.txt', debugText);
+    } catch (e: any) {
+      console.error("Error writing debug file:", e.message);
+    }
+
     // Find candidate Kings (males)
     const males = users.filter((u: any) => u.gender && u.gender.toLowerCase() === 'male');
     males.sort((a: any, b: any) => {
-      const creditsA = (a.knowledgeCredits || 0) + (a.contributionCredits || 0);
-      const creditsB = (b.knowledgeCredits || 0) + (b.contributionCredits || 0);
+      const a_kc = a.knowledgeCredits !== undefined ? a.knowledgeCredits : (a.knowledge_credits || 0);
+      const a_cc = a.contributionCredits !== undefined ? a.contributionCredits : (a.contribution_credits || 0);
+      const b_kc = b.knowledgeCredits !== undefined ? b.knowledgeCredits : (b.knowledge_credits || 0);
+      const b_cc = b.contributionCredits !== undefined ? b.contributionCredits : (b.contribution_credits || 0);
+      const creditsA = Number(a_kc) + Number(a_cc);
+      const creditsB = Number(b_kc) + Number(b_cc);
       return creditsB - creditsA;
     });
 
     // Find candidate Queens (females)
     const females = users.filter((u: any) => u.gender && u.gender.toLowerCase() === 'female');
     females.sort((a: any, b: any) => {
-      const creditsA = (a.knowledgeCredits || 0) + (a.contributionCredits || 0);
-      const creditsB = (b.knowledgeCredits || 0) + (b.contributionCredits || 0);
+      const a_kc = a.knowledgeCredits !== undefined ? a.knowledgeCredits : (a.knowledge_credits || 0);
+      const a_cc = a.contributionCredits !== undefined ? a.contributionCredits : (a.contribution_credits || 0);
+      const b_kc = b.knowledgeCredits !== undefined ? b.knowledgeCredits : (b.knowledge_credits || 0);
+      const b_cc = b.contributionCredits !== undefined ? b.contributionCredits : (b.contribution_credits || 0);
+      const creditsA = Number(a_kc) + Number(a_cc);
+      const creditsB = Number(b_kc) + Number(b_cc);
       return creditsB - creditsA;
     });
 
@@ -50,9 +72,11 @@ export const reconcileRanksInDatabase = async (db: any) => {
         }
       } else {
         if (u.currentRank === 'King' || u.currentRank === 'Queen') {
+          const u_kc = u.knowledgeCredits !== undefined ? u.knowledgeCredits : (u.knowledge_credits || 0);
+          const u_cc = u.contributionCredits !== undefined ? u.contributionCredits : (u.contribution_credits || 0);
           newRank = calculateUserRank(
-            u.knowledgeCredits || 0,
-            u.contributionCredits || 0,
+            u_kc,
+            u_cc,
             u.reputationScore || 25,
             u.civicParticipationScore || 0,
             u.legacyPoints || 0
@@ -116,6 +140,14 @@ export const getCurrentMonarch = async (req: Request, res: Response) => {
     const { king, queen } = await reconcileRanksInDatabase(db);
     
     const monarch = king || queen || null;
+    const monarch_kc = monarch ? (monarch.knowledgeCredits !== undefined ? monarch.knowledgeCredits : (monarch.knowledge_credits || 0)) : 0;
+    const monarch_cc = monarch ? (monarch.contributionCredits !== undefined ? monarch.contributionCredits : (monarch.contribution_credits || 0)) : 0;
+
+    const king_kc = king ? (king.knowledgeCredits !== undefined ? king.knowledgeCredits : (king.knowledge_credits || 0)) : 0;
+    const king_cc = king ? (king.contributionCredits !== undefined ? king.contributionCredits : (king.contribution_credits || 0)) : 0;
+
+    const queen_kc = queen ? (queen.knowledgeCredits !== undefined ? queen.knowledgeCredits : (queen.knowledge_credits || 0)) : 0;
+    const queen_cc = queen ? (queen.contributionCredits !== undefined ? queen.contributionCredits : (queen.contribution_credits || 0)) : 0;
     
     return res.json({
       success: true,
@@ -126,7 +158,11 @@ export const getCurrentMonarch = async (req: Request, res: Response) => {
         currentRank: monarch.currentRank,
         auraLevel: monarch.auraLevel || 'None',
         bio: monarch.bio || '',
-        profilePhoto: monarch.profilePhoto || ''
+        profilePhoto: monarch.profilePhoto || '',
+        knowledgeCredits: monarch_kc,
+        knowledge_credits: monarch_kc,
+        contributionCredits: monarch_cc,
+        contribution_credits: monarch_cc
       } : null,
       king: king ? {
         id: king._id,
@@ -135,16 +171,24 @@ export const getCurrentMonarch = async (req: Request, res: Response) => {
         currentRank: king.currentRank,
         auraLevel: king.auraLevel || 'None',
         bio: king.bio || '',
-        profilePhoto: king.profilePhoto || ''
+        profilePhoto: king.profilePhoto || '',
+        knowledgeCredits: king_kc,
+        knowledge_credits: king_kc,
+        contributionCredits: king_cc,
+        contribution_credits: king_cc
       } : null,
       queen: queen ? {
         id: queen._id,
         name: queen.name,
         username: queen.username,
         currentRank: queen.currentRank,
-        auraLevel: queen.auraLevel || 'None',
+        auraLevel: queen.queenLevel || queen.auraLevel || 'None',
         bio: queen.bio || '',
-        profilePhoto: queen.profilePhoto || ''
+        profilePhoto: queen.profilePhoto || '',
+        knowledgeCredits: queen_kc,
+        knowledge_credits: queen_kc,
+        contributionCredits: queen_cc,
+        contribution_credits: queen_cc
       } : null
     });
   } catch (error: any) {

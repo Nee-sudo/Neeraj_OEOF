@@ -131,7 +131,7 @@ export const registerUser = async (req: Request, res: Response) => {
     const userWithToken = { ...newUser, token };
 
     await userDocRef.set(newUser);
-    res.status(201).json(userWithToken);
+    res.status(201).json(sanitizeUserResponse(userWithToken));
   } catch (error: any) {
     console.error("Firestore Registration Error:", error);
     res.status(500).json({ error: error.message });
@@ -201,7 +201,7 @@ export const loginUser = async (req: Request, res: Response) => {
     const token = jwt.sign({ userId: finalDocId }, JWT_SECRET, { expiresIn: '24h' });
     const userWithToken = { ...matchedUser, id: finalDocId, token };
 
-    res.status(200).json(userWithToken);
+    res.status(200).json(sanitizeUserResponse(userWithToken));
   } catch (error: any) {
     console.error("Firestore Login Error:", error);
     res.status(500).json({ error: error.message });
@@ -236,7 +236,7 @@ export const getUserProfile = async (req: Request, res: Response) => {
        return;
     }
 
-    res.status(200).json(user);
+    res.status(200).json(sanitizeUserResponse(user));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -353,7 +353,7 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     }
 
     await userDocRef.set(merged);
-    res.status(200).json(merged);
+    res.status(200).json(sanitizeUserResponse(merged));
   } catch (error: any) {
     console.error("Firestore Update Profile Error:", error);
     res.status(500).json({ error: error.message });
@@ -370,7 +370,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
       snapshot.docs.forEach((doc: any) => {
         const data = doc.data();
         if (data && data.email && data.name) {
-          usersList.push(data);
+          usersList.push(sanitizeUserResponse(data));
         }
       });
     }
@@ -467,3 +467,16 @@ export const sendFriendRequest = async (req: any, res: Response) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+export function sanitizeUserResponse(user: any): any {
+  if (!user) return user;
+  const kc = user.knowledgeCredits !== undefined ? user.knowledgeCredits : (user.knowledge_credits || 0);
+  const cc = user.contributionCredits !== undefined ? user.contributionCredits : (user.contribution_credits || 0);
+  return {
+    ...user,
+    knowledgeCredits: kc,
+    knowledge_credits: kc,
+    contributionCredits: cc,
+    contribution_credits: cc
+  };
+}

@@ -2684,10 +2684,13 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
+                        val dispKC = user.knowledgeCredits
+                        val dispCC = user.contributionCredits
+
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(text = "KC (Knowledge)", color = textSecondaryColor, fontSize = 10.sp)
                             Text(
-                                text = "${user.knowledgeCredits}",
+                                text = "$dispKC",
                                 color = ElectricBlue,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold
@@ -2696,7 +2699,7 @@ fun ProfileDisplayDialog(user: UserEntity, viewModel: AppViewModel, onClose: () 
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(text = "CC (Contribution)", color = textSecondaryColor, fontSize = 10.sp)
                             Text(
-                                text = "${user.contributionCredits}",
+                                text = "$dispCC",
                                 color = LustrousAmber,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold
@@ -5683,9 +5686,21 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
                                         shape = RoundedCornerShape(8.dp),
                                         border = BorderStroke(0.5.dp, RegalGold.copy(alpha = 0.4f))
                                     ) {
+                                        // ✅ Calculate total with proper state handling
+                                        val kingTotalScore = kingUser.knowledgeCredits + kingUser.contributionCredits
+                                        val kingHasValidScore = kingUser.knowledgeCredits > 0 || kingUser.contributionCredits > 0 || kingTotalScore > 0
+                                        
+                                        val kingScoreText = if (kingHasValidScore) {
+                                            "$kingTotalScore ★"
+                                        } else {
+                                            "⚠️ Score Loading"
+                                        }
+                                        
+                                        val kingScoreColor = if (kingHasValidScore) RegalGold else androidx.compose.ui.graphics.Color(0xFFFF6B6B)  // Gold if valid, Red if loading
+                                        
                                         Text(
-                                            text = "${kingUser.knowledgeCredits + kingUser.contributionCredits} ★",
-                                            color = RegalGold,
+                                            text = kingScoreText,
+                                            color = kingScoreColor,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -5777,9 +5792,21 @@ fun ElectionsAndProfileTab(viewModel: AppViewModel) {
                                         shape = RoundedCornerShape(8.dp),
                                         border = BorderStroke(0.5.dp, Color(0xFFE5A4F4).copy(alpha = 0.4f))
                                     ) {
+                                        // ✅ Calculate total with proper state handling
+                                        val queenTotalScore = queenUser.knowledgeCredits + queenUser.contributionCredits
+                                        val queenHasValidScore = queenUser.knowledgeCredits > 0 || queenUser.contributionCredits > 0 || queenTotalScore > 0
+                                        
+                                        val queenScoreText = if (queenHasValidScore) {
+                                            "$queenTotalScore ★"
+                                        } else {
+                                            "⚠️ Score Loading"
+                                        }
+                                        
+                                        val queenScoreColor = if (queenHasValidScore) Color(0xFFE5A4F4) else androidx.compose.ui.graphics.Color(0xFFFF6B6B)  // Purple if valid, Red if loading
+                                        
                                         Text(
-                                            text = "${queenUser.knowledgeCredits + queenUser.contributionCredits} ★",
-                                            color = Color(0xFFE5A4F4),
+                                            text = queenScoreText,
+                                            color = queenScoreColor,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
