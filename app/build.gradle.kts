@@ -16,8 +16,8 @@ android {
     applicationId = "com.aistudio.oneearth.uxmsrp"
     minSdk = 24
     targetSdk = 36
-    versionCode = 12
-    versionName = "1.1.2"
+    versionCode = 15
+    versionName = "15.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

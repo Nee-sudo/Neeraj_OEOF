@@ -466,7 +466,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
             _backendBaseUrl.value = ApiClient.getBaseUrl()
             sharedPrefs.edit().putString("backend_url", ApiClient.getBaseUrl()).apply()
         } else {
-            ApiClient.updateBaseUrl("https://boolean-lexmark-terrorism-yellow.trycloudflare.com/")
+            ApiClient.updateBaseUrl("https://one-earth-dadyagc7bcc9hpcb.eastasia-01.azurewebsites.net/")
             _backendBaseUrl.value = ApiClient.getBaseUrl()
         }
         // Prepopulate database with rich data for demonstration
@@ -627,7 +627,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application), So
                             failedCount = 0
                         } else if (failedCount >= 2 && (currentUrl.contains("10.0.2.2") || currentUrl.contains("localhost"))) {
                             android.util.Log.d("AppViewModel", "Local loopback unresponsive. Reverting to cloud tunnel...")
-                            ApiClient.updateBaseUrl("https://boolean-lexmark-terrorism-yellow.trycloudflare.com/")
+                            ApiClient.updateBaseUrl("https://one-earth-dadyagc7bcc9hpcb.eastasia-01.azurewebsites.net/")
                             _backendBaseUrl.value = ApiClient.getBaseUrl()
                             failedCount = 0
                         }
